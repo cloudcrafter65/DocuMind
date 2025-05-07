@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { DocumentType } from "@/services/document-analysis";
@@ -14,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Copy, Share2, Download, Edit, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/download";
-import React, { useState } from 'react';
+import React from 'react';
 
 interface ResultsDisplayProps {
   documentType: DocumentType | null;
@@ -22,16 +23,11 @@ interface ResultsDisplayProps {
   rawText: string; // Always provide raw text
   onEditToggle?: () => void;
   isEditing?: boolean;
+  onRawTextChange?: (newText: string) => void; // Add this prop
 }
 
-export function ResultsDisplay({ documentType, processedData, rawText, onEditToggle, isEditing }: ResultsDisplayProps) {
+export function ResultsDisplay({ documentType, processedData, rawText, onEditToggle, isEditing, onRawTextChange }: ResultsDisplayProps) {
   const { toast } = useToast();
-  const [editableRawText, setEditableRawText] = useState(rawText);
-
-  React.useEffect(() => {
-    setEditableRawText(rawText);
-  }, [rawText]);
-
 
   const handleCopyToClipboard = (textToCopy: string = rawText) => {
     navigator.clipboard.writeText(textToCopy).then(() => {
@@ -65,7 +61,7 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
     let mimeType = "text/plain";
     let extension = format;
 
-    const dataToUse = isEditing ? editableRawText : rawText;
+    const dataToUse = rawText; // Always use the current rawText state which reflects edits
 
     switch (format) {
       case "txt":
@@ -98,39 +94,84 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
 
 
   const renderContent = () => {
-    if (!documentType || !processedData) {
-      return <PrintedTextViewer text={editableRawText} isEditing={isEditing} onTextChange={setEditableRawText} />;
+    if (!documentType) { // Show printed text viewer if no specific type, or if it's explicitly printed_text
+        return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />;
     }
 
     switch (documentType) {
       case "handwritten_notes":
-        return <NotesViewer summaryData={processedData as SummarizeNotesOutput} rawTranscription={editableRawText} isEditing={isEditing} onRawTextChange={setEditableRawText}/>;
+        return <NotesViewer summaryData={processedData as SummarizeNotesOutput} rawTranscription={rawText} isEditing={isEditing} onRawTextChange={onRawTextChange}/>;
       case "retail_receipt":
-        return <ReceiptViewer receiptData={(processedData as ExtractReceiptDataOutput).receipt} />;
+        // For receipts, show structured data and also allow viewing/editing of raw text if editing is enabled.
+        return (
+          <>
+            <ReceiptViewer receiptData={(processedData as ExtractReceiptDataOutput).receipt} />
+            {isEditing && (
+                 <div className="mt-4">
+                    <h3 className="text-lg font-semibold mb-2 text-foreground">Raw Text (Editable)</h3>
+                    <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />
+                 </div>
+            )}
+          </>
+        );
       case "invoice":
-        return <InvoiceViewer invoiceData={processedData as Invoice} />;
+         // For invoices, show structured data and also allow viewing/editing of raw text if editing is enabled.
+        return (
+          <>
+            <InvoiceViewer invoiceData={processedData as Invoice} />
+            {isEditing && (
+                <div className="mt-4">
+                    <h3 className="text-lg font-semibold mb-2 text-foreground">Raw Text (Editable)</h3>
+                    <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />
+                </div>
+            )}
+          </>
+        );
       case "business_card":
         const cardData = processedData as GenerateContactCardOutput;
-        return <BusinessCardViewer contactData={cardData.contactInfo} vCardData={cardData.vCard} />;
+        // For business cards, show structured data and also allow viewing/editing of raw text if editing is enabled.
+        return (
+          <>
+            <BusinessCardViewer contactData={cardData.contactInfo} vCardData={cardData.vCard} />
+             {isEditing && (
+                <div className="mt-4">
+                    <h3 className="text-lg font-semibold mb-2 text-foreground">Raw Text (Editable)</h3>
+                    <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />
+                </div>
+            )}
+          </>
+        );
       case "printed_text":
       default:
-        return <PrintedTextViewer text={editableRawText} isEditing={isEditing} onTextChange={setEditableRawText} />;
+        return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />;
     }
   };
+
+  // Determine if edit button should be shown:
+  // Show for handwritten_notes, printed_text, or ANY document type IF rawText is available.
+  // The core idea is that if there's raw text, it should be editable.
+  const showEditButton = onEditToggle && rawText && 
+    (documentType === 'handwritten_notes' || 
+     documentType === 'printed_text' ||
+     documentType === 'retail_receipt' || // Allow editing raw text for receipts
+     documentType === 'invoice' || // Allow editing raw text for invoices
+     documentType === 'business_card' // Allow editing raw text for business cards
+     );
+
 
   return (
     <div className="mt-6 space-y-4">
       <div className="flex flex-wrap gap-2 mb-4">
-        {onEditToggle && (documentType === 'handwritten_notes' || documentType === 'printed_text') && (
+        {showEditButton && (
           <Button variant="outline" onClick={onEditToggle}>
             {isEditing ? <Save className="mr-2 h-4 w-4" /> : <Edit className="mr-2 h-4 w-4" />}
             {isEditing ? "Save Text" : "Edit Text"}
           </Button>
         )}
-        <Button variant="outline" onClick={() => handleCopyToClipboard(isEditing ? editableRawText : rawText)}>
+        <Button variant="outline" onClick={() => handleCopyToClipboard(rawText)}>
           <Copy className="mr-2 h-4 w-4" /> Copy Text
         </Button>
-        <Button variant="outline" onClick={() => handleShare(isEditing ? editableRawText : rawText)}>
+        <Button variant="outline" onClick={() => handleShare(rawText)}>
           <Share2 className="mr-2 h-4 w-4" /> Share
         </Button>
         <Button variant="outline" onClick={() => handleDownload("txt")}>
@@ -154,3 +195,4 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
     </div>
   );
 }
+

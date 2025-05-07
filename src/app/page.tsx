@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { NextPage } from "next";
@@ -19,24 +20,11 @@ import { identifyDocumentType as identifyDocumentTypeFlow, type IdentifyDocument
 import { summarizeNotes as summarizeNotesFlow, type SummarizeNotesOutput } from "@/ai/flows/summarize-notes";
 import { extractReceiptData as extractReceiptDataFlow, type ExtractReceiptDataOutput } from "@/ai/flows/extract-receipt-data";
 import { generateContactCard as generateContactCardFlow, type GenerateContactCardOutput } from "@/ai/flows/generate-contact-card";
-// Assuming invoice and printed text will primarily return raw text or use a generic structure from Genkit
+import { extractPrintedText as extractPrintedTextFlow, type ExtractPrintedTextOutput } from "@/ai/flows/extract-printed-text-flow";
+// Assuming invoice will primarily return raw text or use a generic structure from Genkit
 import { extractInvoiceInformation } from "@/services/invoice"; // Placeholder for AI flow
 import type { DocumentType } from "@/services/document-analysis";
 import type { Invoice } from "@/services/invoice";
-
-// Placeholder for printed text AI flow - Genkit would typically just extract text
-async function extractPrintedTextFlow(input: { photoDataUri: string }): Promise<{ text: string }> {
-  // This would be a simple text extraction prompt with Genkit
-  // For now, simulate by calling summarizeNotes which includes transcription
-  const summaryResult = await summarizeNotesFlow(input);
-  // We need the raw transcription part. Assuming summarizeNotesFlow or a base transcription flow gives this.
-  // For this example, we'll reuse the summary for simplicity, but in real app, it would be raw text.
-  // A more direct Genkit flow would be:
-  // const transcribePrompt = ai.definePrompt({..., prompt: `Extract all text: {{media url=photoDataUri}}`});
-  // const { output } = await transcribePrompt(input);
-  // return { text: output };
-  return { text: `Simulated raw text extraction: ${summaryResult.summary}` }; // Placeholder
-}
 
 
 const Home: NextPage = () => {
@@ -90,47 +78,49 @@ const Home: NextPage = () => {
       toast({ title: "Document Type Identified", description: `Type: ${idOutput.documentType}` });
 
       // Step 2: Process based on type
-      let tempRawText = ""; // To store raw text if not part of main processed data
-
       switch (idOutput.documentType) {
         case "handwritten_notes":
           toast({ title: "Processing Notes", description: "Summarizing handwritten notes..." });
           const notesOutput: SummarizeNotesOutput = await summarizeNotesFlow({ photoDataUri: imageDataUri });
           setProcessedData(notesOutput);
-          // The summarizeNotesFlow ideally should also return raw transcription.
-          // For now, we'll use a placeholder or assume summary contains enough.
-          // A proper implementation would have a separate flow/step for raw transcription.
-          // For demonstration, if summarizeNotesFlow included raw_transcription:
-          // setRawText(notesOutput.raw_transcription || notesOutput.summary); 
-          // Simulate raw text for now
-          const transcriptionForNotes = await extractPrintedTextFlow({ photoDataUri: imageDataUri }); // Re-use for transcription
+          // summarizeNotesFlow includes transcription. We need a way to get raw text from it.
+          // The summarizeNotesFlow already internally transcribes. For consistency, we'll rely on it.
+          // To get raw text for notes, we'll call extractPrintedTextFlow separately for now.
+          // A more optimized approach would be for summarizeNotesFlow to return both summary and raw transcription.
+          const transcriptionForNotes: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
           setRawText(transcriptionForNotes.text);
           break;
         case "retail_receipt":
           toast({ title: "Processing Receipt", description: "Extracting receipt data..." });
           const receiptOutput: ExtractReceiptDataOutput = await extractReceiptDataFlow({ photoDataUri: imageDataUri });
           setProcessedData(receiptOutput);
-          setRawText(JSON.stringify(receiptOutput.receipt, null, 2)); // Raw as JSON for receipts
+           // For receipts, we can also get raw text in case structured data is incomplete.
+          const rawTextForReceipt: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
+          setRawText(rawTextForReceipt.text);
           break;
         case "invoice":
           toast({ title: "Processing Invoice", description: "Extracting invoice data..." });
           // Placeholder: In a real app, this would use a Genkit flow for invoices.
           // For now, using the service stub.
-          const invoiceOutput: Invoice = await extractInvoiceInformation(imageDataUri);
+          const invoiceOutput: Invoice = await extractInvoiceInformation(imageDataUri); // This is a mock
           setProcessedData(invoiceOutput);
-          setRawText(JSON.stringify(invoiceOutput, null, 2)); // Raw as JSON for invoices
+           // For invoices, also get raw text.
+          const rawTextForInvoice: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
+          setRawText(rawTextForInvoice.text);
           break;
         case "business_card":
           toast({ title: "Processing Business Card", description: "Generating contact card..." });
           const cardOutput: GenerateContactCardOutput = await generateContactCardFlow({ photoDataUri: imageDataUri });
           setProcessedData(cardOutput);
-          setRawText(cardOutput.vCard); // Raw as vCard string
+          // The vCard is a good representation of "raw" structured data.
+          // We can also get the plain text from the card.
+          const rawTextForBizCard: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
+          setRawText(rawTextForBizCard.text); // Store raw OCR text alongside vCard
           break;
         case "printed_text":
         default:
           toast({ title: "Processing Text", description: "Extracting printed text..." });
-          // Placeholder: Use a generic text extraction flow
-          const textOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
+          const textOutput: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
           setProcessedData({ text: textOutput.text }); // Store as {text: "..."}
           setRawText(textOutput.text);
           break;
@@ -154,6 +144,9 @@ const Home: NextPage = () => {
       // For PrintedTextViewer, `processedData.text` should be updated.
       if (documentType === 'printed_text' && processedData) {
         setProcessedData({ ...processedData, text: rawText });
+      } else if (documentType === 'handwritten_notes' && processedData) {
+        // If editing raw transcription of notes, no direct update to summary in processedData from here.
+        // The rawText state is what NotesViewer will use for display.
       }
       toast({ title: "Text Saved", description: "Your changes have been locally saved." });
     }
@@ -213,6 +206,7 @@ const Home: NextPage = () => {
                       rawText={rawText}
                       onEditToggle={handleEditToggle}
                       isEditing={isEditing}
+                      onRawTextChange={setRawText} // Pass setter for raw text
                     />
                   </CardContent>
                 </Card>
