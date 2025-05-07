@@ -20,7 +20,8 @@ import { identifyDocumentType as identifyDocumentTypeFlow, type IdentifyDocument
 import { summarizeNotes as summarizeNotesFlow, type SummarizeNotesOutput } from "@/ai/flows/summarize-notes";
 import { extractReceiptData as extractReceiptDataFlow, type ExtractReceiptDataOutput } from "@/ai/flows/extract-receipt-data";
 import { generateContactCard as generateContactCardFlow, type GenerateContactCardOutput } from "@/ai/flows/generate-contact-card";
-import { extractPrintedText as extractPrintedTextFlow, type ExtractPrintedTextOutput } from "@/ai/flows/extract-printed-text-flow";
+import { extractPrintedText as extractPrintedTextFlowOriginal, type ExtractPrintedTextOutput } from "@/ai/flows/extract-printed-text-flow";
+
 // Assuming invoice will primarily return raw text or use a generic structure from Genkit
 import { extractInvoiceInformation } from "@/services/invoice"; // Placeholder for AI flow
 import type { DocumentType } from "@/services/document-analysis";
@@ -71,57 +72,52 @@ const Home: NextPage = () => {
     try {
       const imageDataUri = await imageFileToBase64(selectedImageFile);
       
-      // Step 1: Identify Document Type
       toast({ title: "Processing Started", description: "Identifying document type..." });
       const idOutput: IdentifyDocumentTypeOutput = await identifyDocumentTypeFlow({ photoDataUri: imageDataUri });
       setDocumentType(idOutput.documentType);
-      toast({ title: "Document Type Identified", description: `Type: ${idOutput.documentType}` });
+      toast({ title: "Document Type Identified", description: `Type: ${idOutput.documentType.replace(/_/g, ' ')}` });
 
-      // Step 2: Process based on type
       switch (idOutput.documentType) {
         case "handwritten_notes":
           toast({ title: "Processing Notes", description: "Summarizing handwritten notes..." });
-          const notesOutput: SummarizeNotesOutput = await summarizeNotesFlow({ photoDataUri: imageDataUri });
-          setProcessedData(notesOutput);
-          // summarizeNotesFlow includes transcription. We need a way to get raw text from it.
-          // The summarizeNotesFlow already internally transcribes. For consistency, we'll rely on it.
-          // To get raw text for notes, we'll call extractPrintedTextFlow separately for now.
-          // A more optimized approach would be for summarizeNotesFlow to return both summary and raw transcription.
-          const transcriptionForNotes: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
-          setRawText(transcriptionForNotes.text);
+          // First, get raw transcription for handwritten notes as it's needed by summarizeNotesFlow
+          const transcriptionForNotes: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
+          setRawText(transcriptionForNotes.text); // Set raw text immediately
+
+          if (!transcriptionForNotes.text || transcriptionForNotes.text.trim() === "") {
+             toast({ title: "Transcription Empty", description: "Could not transcribe text from notes. Summary cannot be generated.", variant: "default" });
+             setProcessedData({ summary: "No text transcribed to summarize." }); // Set a placeholder summary
+          } else {
+            const notesOutput: SummarizeNotesOutput = await summarizeNotesFlow({ photoDataUri: imageDataUri, existingTranscription: transcriptionForNotes.text });
+            setProcessedData(notesOutput);
+          }
           break;
         case "retail_receipt":
           toast({ title: "Processing Receipt", description: "Extracting receipt data..." });
           const receiptOutput: ExtractReceiptDataOutput = await extractReceiptDataFlow({ photoDataUri: imageDataUri });
           setProcessedData(receiptOutput);
-           // For receipts, we can also get raw text in case structured data is incomplete.
-          const rawTextForReceipt: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
+          const rawTextForReceipt: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
           setRawText(rawTextForReceipt.text);
           break;
         case "invoice":
           toast({ title: "Processing Invoice", description: "Extracting invoice data..." });
-          // Placeholder: In a real app, this would use a Genkit flow for invoices.
-          // For now, using the service stub.
-          const invoiceOutput: Invoice = await extractInvoiceInformation(imageDataUri); // This is a mock
+          const invoiceOutput: Invoice = await extractInvoiceInformation(imageDataUri); 
           setProcessedData(invoiceOutput);
-           // For invoices, also get raw text.
-          const rawTextForInvoice: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
+          const rawTextForInvoice: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
           setRawText(rawTextForInvoice.text);
           break;
         case "business_card":
           toast({ title: "Processing Business Card", description: "Generating contact card..." });
           const cardOutput: GenerateContactCardOutput = await generateContactCardFlow({ photoDataUri: imageDataUri });
           setProcessedData(cardOutput);
-          // The vCard is a good representation of "raw" structured data.
-          // We can also get the plain text from the card.
-          const rawTextForBizCard: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
-          setRawText(rawTextForBizCard.text); // Store raw OCR text alongside vCard
+          const rawTextForBizCard: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
+          setRawText(rawTextForBizCard.text); 
           break;
         case "printed_text":
         default:
           toast({ title: "Processing Text", description: "Extracting printed text..." });
-          const textOutput: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
-          setProcessedData({ text: textOutput.text }); // Store as {text: "..."}
+          const textOutput: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
+          setProcessedData({ text: textOutput.text }); 
           setRawText(textOutput.text);
           break;
       }
@@ -138,15 +134,8 @@ const Home: NextPage = () => {
   
   const handleEditToggle = () => {
     if (isEditing) {
-      // "Save" logic: current rawText state already holds the edited text
-      // You might want to update `processedData` if the raw text affects it
-      // For NotesViewer, `processedData` is the summary, `rawText` is transcription.
-      // For PrintedTextViewer, `processedData.text` should be updated.
       if (documentType === 'printed_text' && processedData) {
         setProcessedData({ ...processedData, text: rawText });
-      } else if (documentType === 'handwritten_notes' && processedData) {
-        // If editing raw transcription of notes, no direct update to summary in processedData from here.
-        // The rawText state is what NotesViewer will use for display.
       }
       toast({ title: "Text Saved", description: "Your changes have been locally saved." });
     }
@@ -159,7 +148,7 @@ const Home: NextPage = () => {
       <Head>
         <title>DocuMind - Intelligent Document Scanner</title>
         <meta name="description" content="Scan, extract text, and process documents intelligently with AI." />
-        <link rel="icon" href="/favicon.ico" /> {/* Make sure you have a favicon */}
+        {/* <link rel="icon" href="/favicon.ico" /> Ensure you have a favicon */}
       </Head>
 
       <div className="flex flex-col min-h-screen bg-background">
@@ -176,7 +165,7 @@ const Home: NextPage = () => {
                   className="w-full text-lg py-6"
                 >
                   {isLoading ? (
-                    <LoadingSpinner message="Processing..." />
+                    <LoadingSpinner message="Processing..." messageClassName="text-primary-foreground" />
                   ) : (
                     "Process Image"
                   )}
@@ -193,7 +182,7 @@ const Home: NextPage = () => {
                 </Alert>
               )}
 
-              {!isLoading && (documentType || rawText) && (
+              {!isLoading && (documentType || rawText || processedData) && ( // Ensure processedData also triggers display
                 <Card className="shadow-lg">
                    <CardHeader>
                     <CardTitle className="text-xl text-foreground">Processed Document</CardTitle>
@@ -206,13 +195,13 @@ const Home: NextPage = () => {
                       rawText={rawText}
                       onEditToggle={handleEditToggle}
                       isEditing={isEditing}
-                      onRawTextChange={setRawText} // Pass setter for raw text
+                      onRawTextChange={setRawText} 
                     />
                   </CardContent>
                 </Card>
               )}
               
-              {!isLoading && !error && !documentType && !rawText && selectedImageFile && (
+              {!isLoading && !error && !documentType && !rawText && !processedData && selectedImageFile && (
                 <Card className="shadow-lg">
                   <CardHeader>
                     <CardTitle className="text-xl text-foreground">Ready to Process</CardTitle>
@@ -223,7 +212,7 @@ const Home: NextPage = () => {
                 </Card>
               )}
 
-              {isLoading && <LoadingSpinner message="Analyzing your document, please wait..." />}
+              {isLoading && <div className="flex justify-center items-center h-full"><LoadingSpinner message="Analyzing your document, please wait..." /></div>}
             </div>
           </div>
         </main>

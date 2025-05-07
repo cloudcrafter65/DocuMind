@@ -29,16 +29,29 @@ interface ResultsDisplayProps {
 export function ResultsDisplay({ documentType, processedData, rawText, onEditToggle, isEditing, onRawTextChange }: ResultsDisplayProps) {
   const { toast } = useToast();
 
-  const handleCopyToClipboard = (textToCopy: string = rawText) => {
+  const getShareableText = (): string => {
+    if (documentType === 'handwritten_notes' && processedData?.summary) {
+      return `Summary:\n${processedData.summary}\n\nFull Transcription:\n${rawText}`;
+    }
+    return rawText;
+  };
+
+  const handleCopyToClipboard = () => {
+    const textToCopy = getShareableText();
     navigator.clipboard.writeText(textToCopy).then(() => {
-      toast({ title: "Copied to Clipboard", description: "Text has been copied." });
+      toast({ title: "Copied to Clipboard", description: "Content has been copied." });
     }).catch(err => {
-      toast({ title: "Copy Failed", description: "Could not copy text.", variant: "destructive" });
+      toast({ title: "Copy Failed", description: "Could not copy content.", variant: "destructive" });
       console.error('Failed to copy: ', err);
     });
   };
 
-  const handleShare = async (textToShare: string = rawText, title: string = "DocuMind - Extracted Text") => {
+  const handleShare = async () => {
+    const textToShare = getShareableText();
+    const title = documentType === 'handwritten_notes' && processedData?.summary 
+                  ? "DocuMind - Notes Summary & Transcription" 
+                  : "DocuMind - Extracted Text";
+
     if (navigator.share) {
       try {
         await navigator.share({
@@ -48,15 +61,18 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
         toast({ title: "Shared Successfully" });
       } catch (error) {
         console.error("Error sharing:", error);
-        toast({ title: "Share Failed", description: "Could not share content.", variant: "destructive" });
+        // Check if error is AbortError, which means user cancelled share
+        if ((error as DOMException).name !== 'AbortError') {
+          toast({ title: "Share Failed", description: "Could not share content.", variant: "destructive" });
+        }
       }
     } else {
       toast({ title: "Share Not Supported", description: "Web Share API is not available on your browser/device. Copied to clipboard instead." });
-      handleCopyToClipboard(textToShare);
+      handleCopyToClipboard(); // Fallback to copy
     }
   };
 
-  const handleDownload = (format: "txt" | "md" | "json" | "csv") => {
+  const handleDownload = (format: "json" | "csv") => {
     let content = "";
     let mimeType = "text/plain";
     let extension = format;
@@ -64,22 +80,15 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
     const dataToUse = rawText; // Always use the current rawText state which reflects edits
 
     switch (format) {
-      case "txt":
-        content = dataToUse;
-        break;
-      case "md":
-        // Basic markdown conversion, can be enhanced
-        content = `# ${documentType || "Document"}\n\n${dataToUse}`;
-        break;
       case "json":
         content = JSON.stringify({ documentType, rawText: dataToUse, processedData }, null, 2);
         mimeType = "application/json";
         break;
       case "csv":
         // Basic CSV for receipts/invoices (items)
-        if ((documentType === 'retail_receipt' || documentType === 'invoice') && processedData?.items) {
+        if ((documentType === 'retail_receipt' || documentType === 'invoice') && processedData?.items && Array.isArray(processedData.items) && processedData.items.length > 0 ) {
           const headers = Object.keys(processedData.items[0]).join(',');
-          const rows = processedData.items.map((item: any) => Object.values(item).join(',')).join('\n');
+          const rows = processedData.items.map((item: any) => Object.values(item).map(val => `"${String(val).replace(/"/g, '""')}"`).join(',')).join('\n');
           content = `${headers}\n${rows}`;
           mimeType = "text/csv";
         } else {
@@ -147,15 +156,12 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
     }
   };
 
-  // Determine if edit button should be shown:
-  // Show for handwritten_notes, printed_text, or ANY document type IF rawText is available.
-  // The core idea is that if there's raw text, it should be editable.
   const showEditButton = onEditToggle && rawText && 
     (documentType === 'handwritten_notes' || 
      documentType === 'printed_text' ||
-     documentType === 'retail_receipt' || // Allow editing raw text for receipts
-     documentType === 'invoice' || // Allow editing raw text for invoices
-     documentType === 'business_card' // Allow editing raw text for business cards
+     documentType === 'retail_receipt' || 
+     documentType === 'invoice' || 
+     documentType === 'business_card' 
      );
 
 
@@ -168,19 +174,13 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
             {isEditing ? "Save Text" : "Edit Text"}
           </Button>
         )}
-        <Button variant="outline" onClick={() => handleCopyToClipboard(rawText)}>
-          <Copy className="mr-2 h-4 w-4" /> Copy Text
+        <Button variant="outline" onClick={handleCopyToClipboard}>
+          <Copy className="mr-2 h-4 w-4" /> Copy
         </Button>
-        <Button variant="outline" onClick={() => handleShare(rawText)}>
+        <Button variant="outline" onClick={handleShare}>
           <Share2 className="mr-2 h-4 w-4" /> Share
         </Button>
-        <Button variant="outline" onClick={() => handleDownload("txt")}>
-          <Download className="mr-2 h-4 w-4" /> TXT
-        </Button>
-        <Button variant="outline" onClick={() => handleDownload("md")}>
-          <Download className="mr-2 h-4 w-4" /> MD
-        </Button>
-         {(documentType === 'retail_receipt' || documentType === 'invoice' || documentType === 'business_card') && (
+         {(documentType === 'retail_receipt' || documentType === 'invoice' || documentType === 'business_card' || documentType === 'handwritten_notes') && (
           <Button variant="outline" onClick={() => handleDownload("json")}>
             <Download className="mr-2 h-4 w-4" /> JSON
           </Button>
@@ -195,4 +195,3 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
     </div>
   );
 }
-

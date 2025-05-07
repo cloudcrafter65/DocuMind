@@ -17,6 +17,7 @@ const SummarizeNotesInputSchema = z.object({
     .describe(
       "A photo of handwritten notes, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
+  existingTranscription: z.string().optional().describe('Optional existing transcription of the notes. If provided, transcription step will be skipped.'),
 });
 export type SummarizeNotesInput = z.infer<typeof SummarizeNotesInputSchema>;
 
@@ -31,9 +32,9 @@ export async function summarizeNotes(input: SummarizeNotesInput): Promise<Summar
 
 const transcribeNotesPrompt = ai.definePrompt({
   name: 'transcribeNotesPrompt',
-  input: {schema: SummarizeNotesInputSchema},
+  input: {schema: z.object({ photoDataUri: SummarizeNotesInputSchema.shape.photoDataUri })}, // Input only photo if transcribing
   // No output.schema here, so response.text will contain the string output
-  prompt: `Transcribe the following handwritten notes from the image.  Output only the text content of the image. Photo: {{media url=photoDataUri}}`,
+  prompt: `Transcribe the following handwritten notes from the image. Output only the text content of the image. Photo: {{media url=photoDataUri}}`,
 });
 
 const summarizeTextPrompt = ai.definePrompt({
@@ -49,19 +50,20 @@ const summarizeNotesFlow = ai.defineFlow(
     inputSchema: SummarizeNotesInputSchema,
     outputSchema: SummarizeNotesOutputSchema,
   },
-  async input => {
-    const transcriptionResult = await transcribeNotesPrompt(input);
-    const transcribedText = transcriptionResult.text; // Access raw text via .text
+  async (input: SummarizeNotesInput) => {
+    let transcribedText = input.existingTranscription;
 
+    if (!transcribedText) {
+      const transcriptionResult = await transcribeNotesPrompt({ photoDataUri: input.photoDataUri });
+      transcribedText = transcriptionResult.text; // Access raw text via .text
+    }
+    
     if (!transcribedText || transcribedText.trim() === "") {
-      // If transcription is empty or only whitespace, return a specific message.
       console.warn("Transcription resulted in empty text for summarization.");
       return { summary: "Could not transcribe any text from the notes to summarize." };
     }
 
     const summaryResult = await summarizeTextPrompt({text: transcribedText});
-    // summaryResult.output is correct here because summarizeTextPrompt has an outputSchema
     return summaryResult.output!; 
   }
 );
-
