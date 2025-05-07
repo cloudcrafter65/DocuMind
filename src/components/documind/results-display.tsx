@@ -16,6 +16,12 @@ import { Copy, Share2, Download, Edit, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/download";
 import React from 'react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ResultsDisplayProps {
   documentType: DocumentType | null;
@@ -30,10 +36,12 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
   const { toast } = useToast();
 
   const getShareableText = (): string => {
+    let shareable = "";
     if (documentType === 'handwritten_notes' && processedData?.summary) {
-      return `Summary:\n${processedData.summary}\n\nFull Transcription:\n${rawText}`;
+      shareable += `Summary:\n${processedData.summary}\n\n`;
     }
-    return rawText;
+    shareable += `Full Text:\n${rawText}`;
+    return shareable;
   };
 
   const handleCopyToClipboard = () => {
@@ -72,18 +80,14 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
     }
   };
 
-  const handleDownload = (format: "json" | "csv") => {
+  const handleDownload = (format: "csv") => {
     let content = "";
     let mimeType = "text/plain";
     let extension = format;
 
-    const dataToUse = rawText; // Always use the current rawText state which reflects edits
+    const dataToUse = rawText; 
 
     switch (format) {
-      case "json":
-        content = JSON.stringify({ documentType, rawText: dataToUse, processedData }, null, 2);
-        mimeType = "application/json";
-        break;
       case "csv":
         // Basic CSV for receipts/invoices (items)
         if ((documentType === 'retail_receipt' || documentType === 'invoice') && processedData?.items && Array.isArray(processedData.items) && processedData.items.length > 0 ) {
@@ -103,7 +107,7 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
 
 
   const renderContent = () => {
-    if (!documentType) { // Show printed text viewer if no specific type, or if it's explicitly printed_text
+    if (!documentType) { 
         return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />;
     }
 
@@ -111,7 +115,6 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
       case "handwritten_notes":
         return <NotesViewer summaryData={processedData as SummarizeNotesOutput} rawTranscription={rawText} isEditing={isEditing} onRawTextChange={onRawTextChange}/>;
       case "retail_receipt":
-        // For receipts, show structured data and also allow viewing/editing of raw text if editing is enabled.
         return (
           <>
             <ReceiptViewer receiptData={(processedData as ExtractReceiptDataOutput).receipt} />
@@ -124,7 +127,6 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
           </>
         );
       case "invoice":
-         // For invoices, show structured data and also allow viewing/editing of raw text if editing is enabled.
         return (
           <>
             <InvoiceViewer invoiceData={processedData as Invoice} />
@@ -138,7 +140,6 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
         );
       case "business_card":
         const cardData = processedData as GenerateContactCardOutput;
-        // For business cards, show structured data and also allow viewing/editing of raw text if editing is enabled.
         return (
           <>
             <BusinessCardViewer contactData={cardData.contactInfo} vCardData={cardData.vCard} />
@@ -166,32 +167,61 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
 
 
   return (
-    <div className="mt-6 space-y-4">
-      <div className="flex flex-wrap gap-2 mb-4">
-        {showEditButton && (
-          <Button variant="outline" onClick={onEditToggle}>
-            {isEditing ? <Save className="mr-2 h-4 w-4" /> : <Edit className="mr-2 h-4 w-4" />}
-            {isEditing ? "Save Text" : "Edit Text"}
-          </Button>
-        )}
-        <Button variant="outline" onClick={handleCopyToClipboard}>
-          <Copy className="mr-2 h-4 w-4" /> Copy
-        </Button>
-        <Button variant="outline" onClick={handleShare}>
-          <Share2 className="mr-2 h-4 w-4" /> Share
-        </Button>
-         {(documentType === 'retail_receipt' || documentType === 'invoice' || documentType === 'business_card' || documentType === 'handwritten_notes') && (
-          <Button variant="outline" onClick={() => handleDownload("json")}>
-            <Download className="mr-2 h-4 w-4" /> JSON
-          </Button>
-        )}
-        {(documentType === 'retail_receipt' || documentType === 'invoice') && processedData?.items?.length > 0 && (
-          <Button variant="outline" onClick={() => handleDownload("csv")}>
-            <Download className="mr-2 h-4 w-4" /> CSV
-          </Button>
-        )}
+    <TooltipProvider>
+      <div className="mt-6 space-y-4">
+        <div className="flex flex-wrap gap-2 mb-4">
+          {showEditButton && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="icon" onClick={onEditToggle}>
+                  {isEditing ? <Save className="h-4 w-4" /> : <Edit className="h-4 w-4" />}
+                  <span className="sr-only">{isEditing ? "Save Text" : "Edit Text"}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{isEditing ? "Save Text" : "Edit Text"}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon" onClick={handleCopyToClipboard}>
+                <Copy className="h-4 w-4" />
+                <span className="sr-only">Copy</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Copy</p>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon" onClick={handleShare}>
+                <Share2 className="h-4 w-4" />
+                <span className="sr-only">Share</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Share</p>
+            </TooltipContent>
+          </Tooltip>
+          {(documentType === 'retail_receipt' || documentType === 'invoice') && processedData?.items?.length > 0 && (
+             <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="icon" onClick={() => handleDownload("csv")}>
+                  <Download className="h-4 w-4" />
+                   <span className="sr-only">Download CSV</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Download CSV</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+        {renderContent()}
       </div>
-      {renderContent()}
-    </div>
+    </TooltipProvider>
   );
 }
+
