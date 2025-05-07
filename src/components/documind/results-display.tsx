@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { DocumentType } from "@/services/document-analysis";
@@ -12,7 +11,7 @@ import { InvoiceViewer } from "./invoice-viewer";
 import { BusinessCardViewer } from "./business-card-viewer";
 import { PrintedTextViewer } from "./printed-text-viewer";
 import { Button } from "@/components/ui/button";
-import { Copy, Share2, Download, Edit, Save } from "lucide-react";
+import { Copy, Share2, Download } from "lucide-react"; // Removed Edit, Save
 import { useToast } from "@/hooks/use-toast";
 import { downloadFile } from "@/lib/download";
 import React from 'react';
@@ -22,6 +21,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 interface ResultsDisplayProps {
   documentType: DocumentType | null;
@@ -30,7 +30,7 @@ interface ResultsDisplayProps {
   onEditToggle?: () => void;
   isEditing?: boolean;
   onRawTextChange?: (newText: string) => void;
-  fontSize: string; // Added fontSize prop
+  fontSize: string;
 }
 
 export function ResultsDisplay({ documentType, processedData, rawText, onEditToggle, isEditing, onRawTextChange, fontSize }: ResultsDisplayProps) {
@@ -41,17 +41,28 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
     if (documentType === 'handwritten_notes' && processedData?.summary) {
       shareable += `Summary:\n${processedData.summary}\n\n`;
     } else if (documentType === 'printed_text' && processedData?.text) {
-      // No separate summary for printed_text, rawText is the main content
+      // rawText is the main content
     } else if (processedData && typeof processedData === 'object' && 'summary' in processedData && processedData.summary) {
-      // Generic summary if available for other types
       shareable += `Summary:\n${processedData.summary}\n\n`;
     }
-    shareable += `Full Text:\n${rawText}`;
-    return shareable;
+    
+    if (rawText) {
+      shareable += `Full Text:\n${rawText}`;
+    } else if (!shareable && processedData?.text) { // Fallback for printed_text if rawText is empty but processedData.text exists
+      shareable += `Text:\n${processedData.text}`;
+    } else if (!shareable && documentType === 'business_card' && processedData?.contactInfo) {
+      const { fullName, jobTitle, companyName, phoneNumbers, emailAddresses, website, address } = processedData.contactInfo;
+      shareable = `Contact: ${fullName}\nTitle: ${jobTitle}\nCompany: ${companyName}\nPhone: ${phoneNumbers?.join(', ')}\nEmail: ${emailAddresses?.join(', ')}\nWebsite: ${website}\nAddress: ${address}`;
+    }
+    return shareable.trim();
   };
 
   const handleCopyToClipboard = () => {
     const textToCopy = getShareableText();
+    if (!textToCopy) {
+      toast({ title: "Nothing to Copy", description: "No content available to copy.", variant: "default" });
+      return;
+    }
     navigator.clipboard.writeText(textToCopy).then(() => {
       toast({ title: "Copied to Clipboard", description: "Content has been copied." });
     }).catch(err => {
@@ -62,11 +73,14 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
 
   const handleShare = async () => {
     const textToShare = getShareableText();
+    if (!textToShare) {
+      toast({ title: "Nothing to Share", description: "No content available to share.", variant: "default" });
+      return;
+    }
     let shareTitle = "DocuMind - Extracted Content";
     if (documentType === 'handwritten_notes' && processedData?.summary) {
       shareTitle = "DocuMind - Notes Summary & Transcription";
     }
-
 
     if (navigator.share) {
       try {
@@ -74,62 +88,44 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
           title: shareTitle,
           text: textToShare,
         });
-        toast({ title: "Shared Successfully" });
+        // toast({ title: "Shared Successfully" }); // Often, browsers handle their own share success/cancel UI
       } catch (error) {
         console.error("Error sharing:", error);
-        if ((error as DOMException).name !== 'AbortError') {
+        if ((error as DOMException).name !== 'AbortError') { // Don't toast if user cancelled
           toast({ title: "Share Failed", description: "Could not share content.", variant: "destructive" });
         }
       }
     } else {
-      toast({ title: "Share Not Supported", description: "Web Share API is not available on your browser/device. Copied to clipboard instead." });
+      toast({ title: "Share Not Supported", description: "Web Share API is not available. Copied to clipboard instead." });
       handleCopyToClipboard();
     }
   };
-
-  const handleDownload = (format: "csv") => {
-    let content = "";
-    let mimeType = "text/plain";
-    let extension = format;
-
-    switch (format) {
-      case "csv":
-        if ((documentType === 'retail_receipt' || documentType === 'invoice') && processedData?.items && Array.isArray(processedData.items) && processedData.items.length > 0 ) {
-          const headers = Object.keys(processedData.items[0]).join(',');
-          const rows = processedData.items.map((item: any) => Object.values(item).map(val => `"${String(val).replace(/"/g, '""')}"`).join(',')).join('\n');
-          content = `${headers}\n${rows}`;
-          mimeType = "text/csv";
-        } else {
-          toast({ title: "CSV Not Applicable", description: "CSV export is best for itemized data like receipts or invoices." });
-          return;
-        }
-        break;
-    }
-    downloadFile(`documind_export.${extension}`, content, mimeType);
-    toast({ title: "Download Started", description: `Exported as ${extension.toUpperCase()}` });
-  };
-
-
+  
   const renderContent = () => {
     if (!documentType && !rawText && !processedData) {
-        return <p className="text-muted-foreground">No data to display yet. Process an image to see results.</p>;
+        return <p className="text-muted-foreground px-1 py-2">No data to display yet. Process an image to see results.</p>;
     }
     
-    // Fallback for when documentType is null but there's rawText (e.g., initial generic text extraction)
     if (!documentType && rawText) {
-        return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} />;
+        return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} onEditToggle={onEditToggle} />;
     }
-
 
     switch (documentType) {
       case "handwritten_notes":
-        return <NotesViewer summaryData={processedData as SummarizeNotesOutput} rawTranscription={rawText} isEditing={isEditing} onRawTextChange={onRawTextChange} fontSize={fontSize}/>;
+        return <NotesViewer summaryData={processedData as SummarizeNotesOutput} rawTranscription={rawText} isEditing={isEditing} onRawTextChange={onRawTextChange} fontSize={fontSize} onEditToggle={onEditToggle} />;
       case "retail_receipt":
         return (
           <div className="space-y-4">
             <ReceiptViewer receiptData={(processedData as ExtractReceiptDataOutput).receipt} />
-            {isEditing && rawText && (
-                 <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} />
+            {(rawText || isEditing) && ( // Show raw text or edit area if rawText exists or in edit mode
+                 <PrintedTextViewer 
+                    text={rawText} 
+                    isEditing={isEditing} 
+                    onTextChange={onRawTextChange} 
+                    fontSize={fontSize} 
+                    onEditToggle={rawText ? onEditToggle : undefined} // Only allow toggle if there's text
+                    header={rawText ? "Raw Extracted Text (Receipt)" : (isEditing ? "Edit Raw Text (Receipt)" : "")}
+                />
             )}
           </div>
         );
@@ -137,8 +133,15 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
         return (
           <div className="space-y-4">
             <InvoiceViewer invoiceData={processedData as Invoice} />
-            {isEditing && rawText && (
-                <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} />
+            {(rawText || isEditing) && (
+                <PrintedTextViewer 
+                    text={rawText} 
+                    isEditing={isEditing} 
+                    onTextChange={onRawTextChange} 
+                    fontSize={fontSize} 
+                    onEditToggle={rawText ? onEditToggle : undefined}
+                    header={rawText ? "Raw Extracted Text (Invoice)" : (isEditing ? "Edit Raw Text (Invoice)" : "")}
+                />
             )}
           </div>
         );
@@ -147,40 +150,32 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
         return (
           <div className="space-y-4">
             <BusinessCardViewer contactData={cardData.contactInfo} vCardData={cardData.vCard} />
-             {isEditing && rawText && (
-                <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} />
+             {(rawText || isEditing) && (
+                <PrintedTextViewer 
+                    text={rawText} 
+                    isEditing={isEditing} 
+                    onTextChange={onRawTextChange} 
+                    fontSize={fontSize} 
+                    onEditToggle={rawText ? onEditToggle : undefined}
+                    header={rawText ? "Raw Extracted Text (Business Card)" : (isEditing ? "Edit Raw Text (Business Card)" : "")}
+                />
             )}
           </div>
         );
       case "printed_text":
       default:
-        // Use rawText directly for printed_text, as processedData.text might be the same
-        return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} />;
+        return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} onEditToggle={onEditToggle} />;
     }
   };
 
-  const showEditButton = onEditToggle && rawText;
-
-
   return (
     <TooltipProvider>
-      <div className="mt-6 space-y-4">
-        <div className="flex flex-wrap gap-2 mb-4">
-          {showEditButton && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={onEditToggle} aria-label={isEditing ? "Save Text" : "Edit Text"}>
-                  {isEditing ? <Save className="h-4 w-4" /> : <Edit className="h-4 w-4" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{isEditing ? "Save Text" : "Edit Text"}</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
+      <div className="mt-2 space-y-4"> {/* Reduced top margin */}
+        <div className="flex flex-wrap gap-2 mb-3">
+          {/* Edit/Save button is now moved to individual viewers */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="outline" size="icon" onClick={handleCopyToClipboard} aria-label="Copy content to clipboard">
+              <Button variant="outline" size="icon" onClick={handleCopyToClipboard} aria-label="Copy content">
                 <Copy className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
@@ -197,18 +192,6 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
               </TooltipTrigger>
               <TooltipContent>
                 <p>Share</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {(documentType === 'retail_receipt' || documentType === 'invoice') && processedData?.items?.length > 0 && (
-             <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={() => handleDownload("csv")} aria-label="Download data as CSV">
-                  <Download className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Download CSV</p>
               </TooltipContent>
             </Tooltip>
           )}

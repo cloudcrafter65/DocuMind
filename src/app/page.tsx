@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { NextPage } from "next";
@@ -72,9 +71,10 @@ const Home: NextPage = () => {
 
     setIsLoading(true);
     setError(null);
-    setDocumentType(null);
-    setProcessedData(null);
-    setRawText("");
+    // Keep existing documentType, processedData, rawText until new data is ready
+    // setDocumentType(null); 
+    // setProcessedData(null);
+    // setRawText("");
     setIsEditing(false);
 
     try {
@@ -86,7 +86,9 @@ const Home: NextPage = () => {
       toast({ title: "Document Type Identified", description: `Type: ${idOutput.documentType.replace(/_/g, ' ')}` });
 
       let extractedTextForProcessing = "";
-      if (idOutput.documentType !== "handwritten_notes") { // For notes, we transcribe first then summarize from that transcription
+      // Always extract text first, unless it's a type that doesn't need pre-extraction for its primary flow (like business cards)
+      // For notes, we still extract, then pass it to summarization.
+      if (idOutput.documentType !== 'business_card') { 
          const textExtractionResult: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
          extractedTextForProcessing = textExtractionResult.text;
          setRawText(extractedTextForProcessing);
@@ -96,16 +98,15 @@ const Home: NextPage = () => {
       switch (idOutput.documentType) {
         case "handwritten_notes":
           toast({ title: "Processing Notes", description: "Transcribing and summarizing handwritten notes..." });
-          // First, transcribe the notes
-          const transcriptionForNotes: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
-          setRawText(transcriptionForNotes.text); // Set raw text from transcription
+          // Raw text is already set from the general extraction step if it was run
+          // If it wasn't (e.g. if we changed logic above), we'd need to extract it here.
+          // For now, we assume rawText contains the transcription.
           
-          if (!transcriptionForNotes.text || transcriptionForNotes.text.trim() === "") {
+          if (!rawText || rawText.trim() === "") { // Use the state `rawText`
              toast({ title: "Transcription Empty", description: "Could not transcribe text from notes. Summary cannot be generated.", variant: "default" });
              setProcessedData({ summary: "No text transcribed to summarize." });
           } else {
-            // Then, summarize using the transcription
-            const notesOutput: SummarizeNotesOutput = await summarizeNotesFlow({ photoDataUri: imageDataUri, existingTranscription: transcriptionForNotes.text });
+            const notesOutput: SummarizeNotesOutput = await summarizeNotesFlow({ photoDataUri: imageDataUri, existingTranscription: rawText });
             setProcessedData(notesOutput);
           }
           break;
@@ -123,15 +124,20 @@ const Home: NextPage = () => {
           break;
         case "business_card":
           toast({ title: "Processing Business Card", description: "Generating contact card..." });
+          // Business cards might not always have a useful "raw text" for separate display,
+          // the structured data is key. If text extraction is needed, it should be done explicitly.
+          // For now, we extract primary business card info and vCard.
+          // If raw text is desired, extract it here:
+          // const businessCardText: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
+          // setRawText(businessCardText.text);
           const cardOutput: GenerateContactCardOutput = await generateContactCardFlow({ photoDataUri: imageDataUri });
           setProcessedData(cardOutput);
-          // Raw text already set if applicable
           break;
         case "printed_text":
         default:
           toast({ title: "Processing Text", description: "Extracting printed text..." });
           // Raw text is already set by the initial extraction
-          setProcessedData({ text: extractedTextForProcessing }); 
+          setProcessedData({ text: rawText }); // use state `rawText`
           break;
       }
       toast({ title: "Processing Complete", description: "Document processed successfully." });
@@ -147,14 +153,9 @@ const Home: NextPage = () => {
   
   const handleEditToggle = () => {
     if (isEditing) {
-      // When saving, update processedData if necessary
       if (documentType === 'printed_text' && processedData) {
         setProcessedData({ ...processedData, text: rawText });
       }
-      // For notes, the summary is based on the transcription.
-      // If rawText (transcription) changed, the summary might be stale.
-      // We could re-trigger summarization here, or just notify the user.
-      // For now, just save the raw text change.
       if (documentType === 'handwritten_notes') {
          toast({ title: "Text Saved", description: "Raw transcription updated. Re-process to update summary if needed." });
       } else {
@@ -179,17 +180,20 @@ const Home: NextPage = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 items-start">
             <div className="space-y-6">
               <ImageUploader onImageSelect={handleImageSelect} selectedImagePreview={selectedImagePreview} />
-              {selectedImageFile && (
+              {selectedImageFile && !isLoading && !processedData && (
                 <Button
                   onClick={handleProcessImage}
-                  disabled={isLoading}
                   className="w-full text-lg py-6"
                 >
-                  {isLoading ? (
-                    <LoadingSpinner message="Processing Image..." messageClassName="text-lg text-primary-foreground" />
-                  ) : (
-                    "Process Image"
-                  )}
+                    Process Image
+                </Button>
+              )}
+              {isLoading && selectedImageFile && ( // Show loading on the button only when processing this specific file
+                 <Button
+                  disabled
+                  className="w-full text-lg py-6"
+                >
+                  <LoadingSpinner message="Processing Image..." messageClassName="text-lg text-primary-foreground" />
                 </Button>
               )}
             </div>
@@ -209,7 +213,7 @@ const Home: NextPage = () => {
                     <CardTitle className="text-xl text-foreground">Processed Document</CardTitle>
                     {documentType && <CardDescription>Type: {documentType.replace(/_/g, ' ')}</CardDescription>}
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="pt-0 pb-2 px-2 sm:px-4">
                     <ResultsDisplay
                       documentType={documentType}
                       processedData={processedData}
@@ -234,7 +238,8 @@ const Home: NextPage = () => {
                 </Card>
               )}
 
-              {isLoading && <div className="flex justify-center items-center h-full"><LoadingSpinner message="Analyzing your document, please wait..." /></div>}
+              {isLoading && !selectedImageFile && <div className="flex justify-center items-center h-full"><LoadingSpinner message="Waiting for image..." /></div>}
+              {/* The specific loading spinner for when processing is active is now part of the button */}
             </div>
           </div>
         </main>
