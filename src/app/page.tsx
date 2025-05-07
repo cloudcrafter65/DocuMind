@@ -15,6 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Terminal } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { imageFileToBase64 } from "@/lib/image-utils";
+import useLocalStorage from "@/hooks/use-local-storage"; // Added for API provider footnote
 
 import { identifyDocumentType as identifyDocumentTypeFlow, type IdentifyDocumentTypeOutput } from "@/ai/flows/identify-document-type";
 import { summarizeNotes as summarizeNotesFlow, type SummarizeNotesOutput } from "@/ai/flows/summarize-notes";
@@ -38,6 +39,8 @@ const Home: NextPage = () => {
   const [processedData, setProcessedData] = useState<any | null>(null);
   const [rawText, setRawText] = useState<string>("");
   const [isEditing, setIsEditing] = useState(false);
+  const [apiProvider] = useLocalStorage<AiProvider>("documind_api_provider", "Google AI");
+
 
   const { toast } = useToast();
 
@@ -80,13 +83,12 @@ const Home: NextPage = () => {
       switch (idOutput.documentType) {
         case "handwritten_notes":
           toast({ title: "Processing Notes", description: "Summarizing handwritten notes..." });
-          // First, get raw transcription for handwritten notes as it's needed by summarizeNotesFlow
           const transcriptionForNotes: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
-          setRawText(transcriptionForNotes.text); // Set raw text immediately
+          setRawText(transcriptionForNotes.text); 
 
           if (!transcriptionForNotes.text || transcriptionForNotes.text.trim() === "") {
              toast({ title: "Transcription Empty", description: "Could not transcribe text from notes. Summary cannot be generated.", variant: "default" });
-             setProcessedData({ summary: "No text transcribed to summarize." }); // Set a placeholder summary
+             setProcessedData({ summary: "No text transcribed to summarize." }); 
           } else {
             const notesOutput: SummarizeNotesOutput = await summarizeNotesFlow({ photoDataUri: imageDataUri, existingTranscription: transcriptionForNotes.text });
             setProcessedData(notesOutput);
@@ -137,7 +139,14 @@ const Home: NextPage = () => {
       if (documentType === 'printed_text' && processedData) {
         setProcessedData({ ...processedData, text: rawText });
       }
-      toast({ title: "Text Saved", description: "Your changes have been locally saved." });
+       if (documentType === 'handwritten_notes' && processedData) {
+        // Potentially re-summarize if raw text changed significantly
+        // For now, just save the raw text change.
+        // If re-summarization is needed, a new call to summarizeNotesFlow would be required.
+        toast({ title: "Text Saved", description: "Raw transcription updated. Summary may need regeneration if changes are substantial." });
+      } else {
+        toast({ title: "Text Saved", description: "Your changes have been locally saved." });
+      }
     }
     setIsEditing(!isEditing);
   };
@@ -148,14 +157,13 @@ const Home: NextPage = () => {
       <Head>
         <title>DocuMind - Intelligent Document Scanner</title>
         <meta name="description" content="Scan, extract text, and process documents intelligently with AI." />
-        {/* <link rel="icon" href="/favicon.ico" /> Ensure you have a favicon */}
       </Head>
 
       <div className="flex flex-col min-h-screen bg-background">
         <DocuMindHeader onSettingsClick={() => setIsSettingsOpen(true)} />
         
-        <main className="flex-grow container mx-auto px-4 py-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+        <main className="flex-grow container mx-auto px-2 sm:px-4 py-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 items-start">
             <div className="space-y-6">
               <ImageUploader onImageSelect={handleImageSelect} selectedImagePreview={selectedImagePreview} />
               {selectedImageFile && (
@@ -165,7 +173,7 @@ const Home: NextPage = () => {
                   className="w-full text-lg py-6"
                 >
                   {isLoading ? (
-                    <LoadingSpinner message="Processing..." messageClassName="text-primary-foreground" />
+                    <LoadingSpinner message="Processing..." messageClassName="text-lg text-primary-foreground" />
                   ) : (
                     "Process Image"
                   )}
@@ -182,7 +190,7 @@ const Home: NextPage = () => {
                 </Alert>
               )}
 
-              {!isLoading && (documentType || rawText || processedData) && ( // Ensure processedData also triggers display
+              {!isLoading && (documentType || rawText || processedData) && (
                 <Card className="shadow-lg">
                    <CardHeader>
                     <CardTitle className="text-xl text-foreground">Processed Document</CardTitle>
@@ -218,7 +226,8 @@ const Home: NextPage = () => {
         </main>
 
         <footer className="py-6 text-center text-sm text-muted-foreground border-t">
-          © {new Date().getFullYear()} DocuMind. All rights reserved.
+          <p>© {new Date().getFullYear()} DocuMind. All rights reserved.</p>
+          {apiProvider && <p className="mt-1">AI processing powered by: {apiProvider}</p>}
         </footer>
       </div>
 

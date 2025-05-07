@@ -6,7 +6,7 @@ import React, { useRef, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { UploadCloud } from "lucide-react";
 
 interface ImageUploaderProps {
@@ -28,7 +28,7 @@ export function ImageUploader({ onImageSelect, selectedImagePreview }: ImageUplo
     <Card className="w-full shadow-lg">
       <CardHeader>
         <CardTitle className="text-xl text-foreground">Upload Document Image</CardTitle>
-        <CardDescription>Upload an image from your device.</CardDescription>
+        {/* Removed CardDescription "Upload an image from your device." */}
       </CardHeader>
       <CardContent className="space-y-6">
         {selectedImagePreview && (
