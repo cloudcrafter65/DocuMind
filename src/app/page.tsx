@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { NextPage } from "next";
@@ -15,6 +16,7 @@ import { Terminal } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { imageFileToBase64 } from "@/lib/image-utils";
 import useLocalStorage from "@/hooks/use-local-storage";
+import { DocuMindFooter } from "@/components/documind/documind-footer";
 
 import { identifyDocumentType as identifyDocumentTypeFlow, type IdentifyDocumentTypeOutput } from "@/ai/flows/identify-document-type";
 import { summarizeNotes as summarizeNotesFlow, type SummarizeNotesOutput } from "@/ai/flows/summarize-notes";
@@ -98,8 +100,6 @@ const Home: NextPage = () => {
       switch (idOutput.documentType) {
         case "handwritten_notes":
           toast({ title: "Processing Notes", description: "Transcribing and summarizing handwritten notes..." });
-          // Use the locally available 'extractedTextForProcessing' for the check and the flow call,
-          // as the 'rawText' state might not be updated yet due to the asynchronous nature of setState.
           if (!extractedTextForProcessing || extractedTextForProcessing.trim() === "") {
              toast({ title: "Transcription Empty", description: "Could not transcribe text from notes. Summary cannot be generated.", variant: "default" });
              setProcessedData({ summary: "No text transcribed to summarize." });
@@ -112,27 +112,20 @@ const Home: NextPage = () => {
           toast({ title: "Processing Receipt", description: "Extracting receipt data..." });
           const receiptOutput: ExtractReceiptDataOutput = await extractReceiptDataFlow({ photoDataUri: imageDataUri });
           setProcessedData(receiptOutput);
-          // rawText (from extractedTextForProcessing) is already set if applicable
           break;
         case "invoice":
           toast({ title: "Processing Invoice", description: "Extracting invoice data..." });
           const invoiceOutput: Invoice = await extractInvoiceInformation(imageDataUri); 
           setProcessedData(invoiceOutput);
-          // rawText (from extractedTextForProcessing) is already set if applicable
           break;
         case "business_card":
           toast({ title: "Processing Business Card", description: "Generating contact card..." });
-          // Business cards might not always have a useful "raw text" for separate display.
-          // If raw text is desired for business cards, it needs to be extracted explicitly:
-          // const businessCardText: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
-          // setRawText(businessCardText.text); // And potentially extractedTextForProcessing = businessCardText.text earlier
           const cardOutput: GenerateContactCardOutput = await generateContactCardFlow({ photoDataUri: imageDataUri });
           setProcessedData(cardOutput);
           break;
         case "printed_text":
         default:
           toast({ title: "Processing Text", description: "Extracting printed text..." });
-          // Use extractedTextForProcessing directly for consistency, though rawText state will eventually update UI
           setProcessedData({ text: extractedTextForProcessing }); 
           break;
       }
@@ -154,9 +147,6 @@ const Home: NextPage = () => {
       } else if (documentType === 'handwritten_notes') {
          toast({ title: "Text Saved", description: "Raw transcription updated. Re-process image to update summary if needed." });
       } else if (documentType === 'retail_receipt' || documentType === 'invoice' || documentType === 'business_card') {
-         // For these types, editing raw text might not directly impact the structured processedData.
-         // We'll save the rawText. If re-processing is desired for structured data based on edited raw text,
-         // that would be a more complex feature (e.g., re-running a specific part of the AI flow).
          toast({ title: "Raw Text Saved", description: "Changes to the raw text have been saved locally." });
       } else {
         toast({ title: "Text Saved", description: "Your changes to the raw text have been saved locally." });
@@ -176,30 +166,29 @@ const Home: NextPage = () => {
       <div className="flex flex-col min-h-screen bg-background">
         <DocuMindHeader onSettingsClick={() => setIsSettingsOpen(true)} />
         
-        <main className="flex-grow container mx-auto px-2 sm:px-4 py-6"> {/* Reduced py-8 to py-6 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 items-start"> {/* Reduced gap-8 to gap-6 */}
-            <div className="space-y-4"> {/* Reduced space-y-6 to space-y-4 */}
+        <main className="flex-grow container mx-auto px-2 sm:px-4 py-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 items-start">
+            <div className="space-y-4">
               <ImageUploader onImageSelect={handleImageSelect} selectedImagePreview={selectedImagePreview} />
-              {selectedImageFile && !isLoading && !processedData && ( // Only show if not loading AND no processed data yet for this image
+              {selectedImageFile && !isLoading && !processedData && (
                 <Button
                   onClick={handleProcessImage}
-                  className="w-full text-lg py-4" // Reduced py-6 to py-4
+                  className="w-full text-lg py-4"
                 >
                     Process Image
                 </Button>
               )}
-              {/* Show loading on the button only when processing THIS specific file and it's the initial processing run */}
               {isLoading && selectedImageFile && !processedData && ( 
                  <Button
                   disabled
-                  className="w-full text-lg py-4 flex items-center justify-center" // Reduced py-6, added flex for centering
+                  className="w-full text-lg py-4 flex items-center justify-center"
                 >
                   <LoadingSpinner message="Processing Image..." messageClassName="text-lg text-primary-foreground ml-2" />
                 </Button>
               )}
             </div>
 
-            <div className="space-y-4"> {/* Reduced space-y-6 to space-y-4 */}
+            <div className="space-y-4">
               {error && (
                 <Alert variant="destructive">
                   <Terminal className="h-4 w-4" />
@@ -209,13 +198,6 @@ const Home: NextPage = () => {
               )}
 
               {!isLoading && (documentType || rawText || processedData) && (
-                // Removed Card wrapper for results display to save space
-                // <Card className="shadow-lg">
-                //   <CardHeader className="px-2 sm:px-4 py-3">
-                //     <CardTitle className="text-lg text-foreground">Processed Document</CardTitle>
-                //     {documentType && <CardDescription>Type: {documentType.replace(/_/g, ' ')}</CardDescription>}
-                //   </CardHeader>
-                //   <CardContent className="pt-0 pb-2 px-2 sm:px-4">
                     <ResultsDisplay
                       documentType={documentType}
                       processedData={processedData}
@@ -225,11 +207,8 @@ const Home: NextPage = () => {
                       onRawTextChange={setRawText} 
                       fontSize={currentFontSize}
                     />
-                //   </CardContent>
-                // </Card>
               )}
               
-              {/* Message for when image is selected but not yet processed */}
               {!isLoading && !error && !documentType && !rawText && !processedData && selectedImageFile && (
                 <Card className="shadow-lg">
                   <CardHeader className="px-2 sm:px-4 py-3">
@@ -241,7 +220,6 @@ const Home: NextPage = () => {
                 </Card>
               )}
               
-              {/* Spinner for initial loading state before any image is selected */}
               {isLoading && !selectedImageFile && (
                  <div className="flex justify-center items-center h-full py-10">
                     <LoadingSpinner message="Waiting for image..." />
@@ -251,10 +229,7 @@ const Home: NextPage = () => {
           </div>
         </main>
 
-        <footer className="py-4 text-center text-xs text-muted-foreground border-t"> {/* Reduced py-6, text-sm to text-xs */}
-          <p>© {new Date().getFullYear()} DocuMind. All rights reserved.</p>
-          {apiProvider && <p className="mt-1">AI processing powered by: {apiProvider}</p>}
-        </footer>
+        <DocuMindFooter />
       </div>
 
       <SettingsDialog isOpen={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
