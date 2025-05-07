@@ -71,7 +71,7 @@ const Home: NextPage = () => {
 
     setIsLoading(true);
     setError(null);
-    // Keep existing documentType, processedData, rawText until new data is ready
+    // Keep existing data until new data is ready to avoid UI flicker
     // setDocumentType(null); 
     // setProcessedData(null);
     // setRawText("");
@@ -91,22 +91,20 @@ const Home: NextPage = () => {
       if (idOutput.documentType !== 'business_card') { 
          const textExtractionResult: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
          extractedTextForProcessing = textExtractionResult.text;
-         setRawText(extractedTextForProcessing);
+         setRawText(extractedTextForProcessing); // Set state for display, but use direct variable for immediate logic
       }
 
 
       switch (idOutput.documentType) {
         case "handwritten_notes":
           toast({ title: "Processing Notes", description: "Transcribing and summarizing handwritten notes..." });
-          // Raw text is already set from the general extraction step if it was run
-          // If it wasn't (e.g. if we changed logic above), we'd need to extract it here.
-          // For now, we assume rawText contains the transcription.
-          
-          if (!rawText || rawText.trim() === "") { // Use the state `rawText`
+          // Use the locally available 'extractedTextForProcessing' for the check and the flow call,
+          // as the 'rawText' state might not be updated yet due to the asynchronous nature of setState.
+          if (!extractedTextForProcessing || extractedTextForProcessing.trim() === "") {
              toast({ title: "Transcription Empty", description: "Could not transcribe text from notes. Summary cannot be generated.", variant: "default" });
              setProcessedData({ summary: "No text transcribed to summarize." });
           } else {
-            const notesOutput: SummarizeNotesOutput = await summarizeNotesFlow({ photoDataUri: imageDataUri, existingTranscription: rawText });
+            const notesOutput: SummarizeNotesOutput = await summarizeNotesFlow({ photoDataUri: imageDataUri, existingTranscription: extractedTextForProcessing });
             setProcessedData(notesOutput);
           }
           break;
@@ -114,30 +112,28 @@ const Home: NextPage = () => {
           toast({ title: "Processing Receipt", description: "Extracting receipt data..." });
           const receiptOutput: ExtractReceiptDataOutput = await extractReceiptDataFlow({ photoDataUri: imageDataUri });
           setProcessedData(receiptOutput);
-          // Raw text already set if applicable
+          // rawText (from extractedTextForProcessing) is already set if applicable
           break;
         case "invoice":
           toast({ title: "Processing Invoice", description: "Extracting invoice data..." });
           const invoiceOutput: Invoice = await extractInvoiceInformation(imageDataUri); 
           setProcessedData(invoiceOutput);
-          // Raw text already set if applicable
+          // rawText (from extractedTextForProcessing) is already set if applicable
           break;
         case "business_card":
           toast({ title: "Processing Business Card", description: "Generating contact card..." });
-          // Business cards might not always have a useful "raw text" for separate display,
-          // the structured data is key. If text extraction is needed, it should be done explicitly.
-          // For now, we extract primary business card info and vCard.
-          // If raw text is desired, extract it here:
+          // Business cards might not always have a useful "raw text" for separate display.
+          // If raw text is desired for business cards, it needs to be extracted explicitly:
           // const businessCardText: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
-          // setRawText(businessCardText.text);
+          // setRawText(businessCardText.text); // And potentially extractedTextForProcessing = businessCardText.text earlier
           const cardOutput: GenerateContactCardOutput = await generateContactCardFlow({ photoDataUri: imageDataUri });
           setProcessedData(cardOutput);
           break;
         case "printed_text":
         default:
           toast({ title: "Processing Text", description: "Extracting printed text..." });
-          // Raw text is already set by the initial extraction
-          setProcessedData({ text: rawText }); // use state `rawText`
+          // Use extractedTextForProcessing directly for consistency, though rawText state will eventually update UI
+          setProcessedData({ text: extractedTextForProcessing }); 
           break;
       }
       toast({ title: "Processing Complete", description: "Document processed successfully." });
@@ -152,12 +148,16 @@ const Home: NextPage = () => {
   };
   
   const handleEditToggle = () => {
-    if (isEditing) {
+    if (isEditing) { // When saving
       if (documentType === 'printed_text' && processedData) {
         setProcessedData({ ...processedData, text: rawText });
-      }
-      if (documentType === 'handwritten_notes') {
-         toast({ title: "Text Saved", description: "Raw transcription updated. Re-process to update summary if needed." });
+      } else if (documentType === 'handwritten_notes') {
+         toast({ title: "Text Saved", description: "Raw transcription updated. Re-process image to update summary if needed." });
+      } else if (documentType === 'retail_receipt' || documentType === 'invoice' || documentType === 'business_card') {
+         // For these types, editing raw text might not directly impact the structured processedData.
+         // We'll save the rawText. If re-processing is desired for structured data based on edited raw text,
+         // that would be a more complex feature (e.g., re-running a specific part of the AI flow).
+         toast({ title: "Raw Text Saved", description: "Changes to the raw text have been saved locally." });
       } else {
         toast({ title: "Text Saved", description: "Your changes to the raw text have been saved locally." });
       }
@@ -176,29 +176,30 @@ const Home: NextPage = () => {
       <div className="flex flex-col min-h-screen bg-background">
         <DocuMindHeader onSettingsClick={() => setIsSettingsOpen(true)} />
         
-        <main className="flex-grow container mx-auto px-2 sm:px-4 py-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 items-start">
-            <div className="space-y-6">
+        <main className="flex-grow container mx-auto px-2 sm:px-4 py-6"> {/* Reduced py-8 to py-6 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 items-start"> {/* Reduced gap-8 to gap-6 */}
+            <div className="space-y-4"> {/* Reduced space-y-6 to space-y-4 */}
               <ImageUploader onImageSelect={handleImageSelect} selectedImagePreview={selectedImagePreview} />
-              {selectedImageFile && !isLoading && !processedData && (
+              {selectedImageFile && !isLoading && !processedData && ( // Only show if not loading AND no processed data yet for this image
                 <Button
                   onClick={handleProcessImage}
-                  className="w-full text-lg py-6"
+                  className="w-full text-lg py-4" // Reduced py-6 to py-4
                 >
                     Process Image
                 </Button>
               )}
-              {isLoading && selectedImageFile && ( // Show loading on the button only when processing this specific file
+              {/* Show loading on the button only when processing THIS specific file and it's the initial processing run */}
+              {isLoading && selectedImageFile && !processedData && ( 
                  <Button
                   disabled
-                  className="w-full text-lg py-6"
+                  className="w-full text-lg py-4 flex items-center justify-center" // Reduced py-6, added flex for centering
                 >
-                  <LoadingSpinner message="Processing Image..." messageClassName="text-lg text-primary-foreground" />
+                  <LoadingSpinner message="Processing Image..." messageClassName="text-lg text-primary-foreground ml-2" />
                 </Button>
               )}
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-4"> {/* Reduced space-y-6 to space-y-4 */}
               {error && (
                 <Alert variant="destructive">
                   <Terminal className="h-4 w-4" />
@@ -208,12 +209,13 @@ const Home: NextPage = () => {
               )}
 
               {!isLoading && (documentType || rawText || processedData) && (
-                <Card className="shadow-lg">
-                   <CardHeader>
-                    <CardTitle className="text-xl text-foreground">Processed Document</CardTitle>
-                    {documentType && <CardDescription>Type: {documentType.replace(/_/g, ' ')}</CardDescription>}
-                  </CardHeader>
-                  <CardContent className="pt-0 pb-2 px-2 sm:px-4">
+                // Removed Card wrapper for results display to save space
+                // <Card className="shadow-lg">
+                //   <CardHeader className="px-2 sm:px-4 py-3">
+                //     <CardTitle className="text-lg text-foreground">Processed Document</CardTitle>
+                //     {documentType && <CardDescription>Type: {documentType.replace(/_/g, ' ')}</CardDescription>}
+                //   </CardHeader>
+                //   <CardContent className="pt-0 pb-2 px-2 sm:px-4">
                     <ResultsDisplay
                       documentType={documentType}
                       processedData={processedData}
@@ -223,28 +225,33 @@ const Home: NextPage = () => {
                       onRawTextChange={setRawText} 
                       fontSize={currentFontSize}
                     />
-                  </CardContent>
-                </Card>
+                //   </CardContent>
+                // </Card>
               )}
               
+              {/* Message for when image is selected but not yet processed */}
               {!isLoading && !error && !documentType && !rawText && !processedData && selectedImageFile && (
                 <Card className="shadow-lg">
-                  <CardHeader>
-                    <CardTitle className="text-xl text-foreground">Ready to Process</CardTitle>
+                  <CardHeader className="px-2 sm:px-4 py-3">
+                    <CardTitle className="text-lg text-foreground">Ready to Process</CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="px-2 sm:px-4 pb-3">
                     <p className="text-muted-foreground">Image selected. Click "Process Image" to analyze.</p>
                   </CardContent>
                 </Card>
               )}
-
-              {isLoading && !selectedImageFile && <div className="flex justify-center items-center h-full"><LoadingSpinner message="Waiting for image..." /></div>}
-              {/* The specific loading spinner for when processing is active is now part of the button */}
+              
+              {/* Spinner for initial loading state before any image is selected */}
+              {isLoading && !selectedImageFile && (
+                 <div className="flex justify-center items-center h-full py-10">
+                    <LoadingSpinner message="Waiting for image..." />
+                 </div>
+              )}
             </div>
           </div>
         </main>
 
-        <footer className="py-6 text-center text-sm text-muted-foreground border-t">
+        <footer className="py-4 text-center text-xs text-muted-foreground border-t"> {/* Reduced py-6, text-sm to text-xs */}
           <p>© {new Date().getFullYear()} DocuMind. All rights reserved.</p>
           {apiProvider && <p className="mt-1">AI processing powered by: {apiProvider}</p>}
         </footer>
@@ -256,3 +263,5 @@ const Home: NextPage = () => {
 };
 
 export default Home;
+
+    
