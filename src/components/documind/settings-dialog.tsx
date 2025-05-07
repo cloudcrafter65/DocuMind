@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -19,12 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import useLocalStorage from "@/hooks/use-local-storage";
-
-interface SettingsDialogProps {
-  isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
-}
+import useLocalStorage from "@/hooks/use-local-storage"; // Keep for API key
 
 export type AiProvider = "Google AI" | "Together.AI" | "Groq";
 export type FontSizeOptionKey = "sm" | "base" | "lg";
@@ -36,13 +30,28 @@ export const fontSizeOptions: Record<FontSizeOptionKey, { label: string; value: 
   lg: { label: "Large", value: "text-lg" },
 };
 
-export function SettingsDialog({ isOpen, onOpenChange }: SettingsDialogProps) {
-  const [apiProvider, setApiProvider] = useLocalStorage<AiProvider>("documind_api_provider", "Google AI");
+interface SettingsDialogProps {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  currentApiProvider: AiProvider;
+  onApiProviderChange: (provider: AiProvider) => void;
+  currentFontSizeKey: FontSizeOptionKey;
+  onFontSizeKeyChange: (key: FontSizeOptionKey) => void;
+}
+
+export function SettingsDialog({ 
+  isOpen, 
+  onOpenChange,
+  currentApiProvider,
+  onApiProviderChange,
+  currentFontSizeKey,
+  onFontSizeKeyChange
+}: SettingsDialogProps) {
   const [apiKey, setApiKey] = useLocalStorage<string>("documind_api_key", "");
-  const [fontSizeKey, setFontSizeKey] = useLocalStorage<FontSizeOptionKey>("documind_font_size", "base");
 
   const handleSave = () => {
-    // Values are already saved by useLocalStorage on change
+    // Values are saved by useLocalStorage on change (for apiKey)
+    // or by parent component via onApiProviderChange/onFontSizeKeyChange
     onOpenChange(false);
   };
 
@@ -62,7 +71,7 @@ export function SettingsDialog({ isOpen, onOpenChange }: SettingsDialogProps) {
               <Label htmlFor="ai-provider" className="text-right">
                 AI Provider
               </Label>
-              <Select value={apiProvider} onValueChange={(value) => setApiProvider(value as AiProvider)}>
+              <Select value={currentApiProvider} onValueChange={(value) => onApiProviderChange(value as AiProvider)}>
                 <SelectTrigger id="ai-provider" className="col-span-3">
                   <SelectValue placeholder="Select AI Provider" />
                 </SelectTrigger>
@@ -87,7 +96,7 @@ export function SettingsDialog({ isOpen, onOpenChange }: SettingsDialogProps) {
               />
             </div>
              <p className="text-xs text-muted-foreground col-span-4 pl-[calc(25%+0.5rem)]">
-              Note: Currently, only Google AI via Genkit is active. Other provider settings are for UI demonstration.
+              Note: Currently, only Google AI via Genkit is active. Other provider settings are for UI demonstration. API Key is stored locally.
             </p>
           </div>
 
@@ -97,7 +106,7 @@ export function SettingsDialog({ isOpen, onOpenChange }: SettingsDialogProps) {
               <Label htmlFor="font-size" className="text-right">
                 Font Size
               </Label>
-              <Select value={fontSizeKey} onValueChange={(value) => setFontSizeKey(value as FontSizeOptionKey)}>
+              <Select value={currentFontSizeKey} onValueChange={(value) => onFontSizeKeyChange(value as FontSizeOptionKey)}>
                 <SelectTrigger id="font-size" className="col-span-3">
                   <SelectValue placeholder="Select Font Size" />
                 </SelectTrigger>

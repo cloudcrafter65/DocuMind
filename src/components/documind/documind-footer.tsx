@@ -1,13 +1,14 @@
-
 "use client";
 
 import React, { useState, useEffect } from "react";
-import useLocalStorage from "@/hooks/use-local-storage";
 import type { AiProvider } from "@/components/documind/settings-dialog";
 
-export function DocuMindFooter() {
+interface DocuMindFooterProps {
+  apiProvider: AiProvider;
+}
+
+export function DocuMindFooter({ apiProvider }: DocuMindFooterProps) {
   const [currentYear, setCurrentYear] = useState<string>("");
-  const [apiProvider] = useLocalStorage<AiProvider>("documind_api_provider", "Google AI");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -20,11 +21,9 @@ export function DocuMindFooter() {
       <p>
         © {mounted ? currentYear : new Date().getFullYear().toString()} DocuMind. All rights reserved.
       </p>
-      {mounted && apiProvider && (
+      {/* apiProvider prop is hydration-safe from useLocalStorage in parent */}
+      {apiProvider && (
         <p className="mt-1">AI processing powered by: {apiProvider}</p>
-      )}
-      {!mounted && ( // Fallback for SSR to match initial render before hydration completes
-         <p className="mt-1">AI processing powered by: Google AI</p>
       )}
     </footer>
   );

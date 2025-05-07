@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { NextPage } from "next";
@@ -40,8 +39,8 @@ const Home: NextPage = () => {
   const [rawText, setRawText] = useState<string>("");
   const [isEditing, setIsEditing] = useState(false);
   
-  const [apiProvider] = useLocalStorage<AiProvider>("documind_api_provider", "Google AI");
-  const [fontSizeKey] = useLocalStorage<FontSizeOptionKey>("documind_font_size", "base");
+  const [apiProvider, setApiProvider] = useLocalStorage<AiProvider>("documind_api_provider", "Google AI");
+  const [fontSizeKey, setFontSizeKey] = useLocalStorage<FontSizeOptionKey>("documind_font_size", "base");
   const [currentFontSize, setCurrentFontSize] = useState<string>(fontSizeOptions.base.value);
 
   useEffect(() => {
@@ -73,10 +72,6 @@ const Home: NextPage = () => {
 
     setIsLoading(true);
     setError(null);
-    // Keep existing data until new data is ready to avoid UI flicker
-    // setDocumentType(null); 
-    // setProcessedData(null);
-    // setRawText("");
     setIsEditing(false);
 
     try {
@@ -88,12 +83,10 @@ const Home: NextPage = () => {
       toast({ title: "Document Type Identified", description: `Type: ${idOutput.documentType.replace(/_/g, ' ')}` });
 
       let extractedTextForProcessing = "";
-      // Always extract text first, unless it's a type that doesn't need pre-extraction for its primary flow (like business cards)
-      // For notes, we still extract, then pass it to summarization.
       if (idOutput.documentType !== 'business_card') { 
          const textExtractionResult: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
          extractedTextForProcessing = textExtractionResult.text;
-         setRawText(extractedTextForProcessing); // Set state for display, but use direct variable for immediate logic
+         setRawText(extractedTextForProcessing); 
       }
 
 
@@ -126,6 +119,8 @@ const Home: NextPage = () => {
         case "printed_text":
         default:
           toast({ title: "Processing Text", description: "Extracting printed text..." });
+          // Use the already set rawText for printed_text type, as it is the primary content.
+          // If extractedTextForProcessing is empty, rawText will also be empty.
           setProcessedData({ text: extractedTextForProcessing }); 
           break;
       }
@@ -141,10 +136,11 @@ const Home: NextPage = () => {
   };
   
   const handleEditToggle = () => {
-    if (isEditing) { // When saving
+    if (isEditing) { 
       if (documentType === 'printed_text' && processedData) {
         setProcessedData({ ...processedData, text: rawText });
       } else if (documentType === 'handwritten_notes') {
+         // rawText is updated via onRawTextChange. The summary is not re-generated on save.
          toast({ title: "Text Saved", description: "Raw transcription updated. Re-process image to update summary if needed." });
       } else if (documentType === 'retail_receipt' || documentType === 'invoice' || documentType === 'business_card') {
          toast({ title: "Raw Text Saved", description: "Changes to the raw text have been saved locally." });
@@ -178,7 +174,7 @@ const Home: NextPage = () => {
                     Process Image
                 </Button>
               )}
-              {isLoading && selectedImageFile && !processedData && ( 
+              {isLoading && selectedImageFile && ( 
                  <Button
                   disabled
                   className="w-full text-lg py-4 flex items-center justify-center"
@@ -197,7 +193,7 @@ const Home: NextPage = () => {
                 </Alert>
               )}
 
-              {!isLoading && (documentType || rawText || processedData) && (
+              {(!isLoading || processedData) && (documentType || rawText || processedData) && (
                     <ResultsDisplay
                       documentType={documentType}
                       processedData={processedData}
@@ -229,14 +225,19 @@ const Home: NextPage = () => {
           </div>
         </main>
 
-        <DocuMindFooter />
+        <DocuMindFooter apiProvider={apiProvider} />
       </div>
 
-      <SettingsDialog isOpen={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+      <SettingsDialog 
+        isOpen={isSettingsOpen} 
+        onOpenChange={setIsSettingsOpen}
+        currentApiProvider={apiProvider}
+        onApiProviderChange={setApiProvider}
+        currentFontSizeKey={fontSizeKey}
+        onFontSizeKeyChange={setFontSizeKey}
+      />
     </>
   );
 };
 
 export default Home;
-
-    
