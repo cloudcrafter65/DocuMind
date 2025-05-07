@@ -4,7 +4,7 @@
 import type { DocumentType } from "@/services/document-analysis";
 import type { SummarizeNotesOutput } from "@/ai/flows/summarize-notes";
 import type { ExtractReceiptDataOutput } from "@/ai/flows/extract-receipt-data";
-import type { Invoice } from "@/services/invoice"; // Assuming type from service
+import type { Invoice } from "@/services/invoice";
 import type { GenerateContactCardOutput } from "@/ai/flows/generate-contact-card";
 import { NotesViewer } from "./notes-viewer";
 import { ReceiptViewer } from "./receipt-viewer";
@@ -25,19 +25,25 @@ import {
 
 interface ResultsDisplayProps {
   documentType: DocumentType | null;
-  processedData: any; // This will hold data specific to documentType
-  rawText: string; // Always provide raw text
+  processedData: any;
+  rawText: string;
   onEditToggle?: () => void;
   isEditing?: boolean;
-  onRawTextChange?: (newText: string) => void; // Add this prop
+  onRawTextChange?: (newText: string) => void;
+  fontSize: string; // Added fontSize prop
 }
 
-export function ResultsDisplay({ documentType, processedData, rawText, onEditToggle, isEditing, onRawTextChange }: ResultsDisplayProps) {
+export function ResultsDisplay({ documentType, processedData, rawText, onEditToggle, isEditing, onRawTextChange, fontSize }: ResultsDisplayProps) {
   const { toast } = useToast();
 
   const getShareableText = (): string => {
     let shareable = "";
     if (documentType === 'handwritten_notes' && processedData?.summary) {
+      shareable += `Summary:\n${processedData.summary}\n\n`;
+    } else if (documentType === 'printed_text' && processedData?.text) {
+      // No separate summary for printed_text, rawText is the main content
+    } else if (processedData && typeof processedData === 'object' && 'summary' in processedData && processedData.summary) {
+      // Generic summary if available for other types
       shareable += `Summary:\n${processedData.summary}\n\n`;
     }
     shareable += `Full Text:\n${rawText}`;
@@ -56,27 +62,28 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
 
   const handleShare = async () => {
     const textToShare = getShareableText();
-    const title = documentType === 'handwritten_notes' && processedData?.summary 
-                  ? "DocuMind - Notes Summary & Transcription" 
-                  : "DocuMind - Extracted Text";
+    let shareTitle = "DocuMind - Extracted Content";
+    if (documentType === 'handwritten_notes' && processedData?.summary) {
+      shareTitle = "DocuMind - Notes Summary & Transcription";
+    }
+
 
     if (navigator.share) {
       try {
         await navigator.share({
-          title: title,
+          title: shareTitle,
           text: textToShare,
         });
         toast({ title: "Shared Successfully" });
       } catch (error) {
         console.error("Error sharing:", error);
-        // Check if error is AbortError, which means user cancelled share
         if ((error as DOMException).name !== 'AbortError') {
           toast({ title: "Share Failed", description: "Could not share content.", variant: "destructive" });
         }
       }
     } else {
       toast({ title: "Share Not Supported", description: "Web Share API is not available on your browser/device. Copied to clipboard instead." });
-      handleCopyToClipboard(); // Fallback to copy
+      handleCopyToClipboard();
     }
   };
 
@@ -85,11 +92,8 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
     let mimeType = "text/plain";
     let extension = format;
 
-    const dataToUse = rawText; 
-
     switch (format) {
       case "csv":
-        // Basic CSV for receipts/invoices (items)
         if ((documentType === 'retail_receipt' || documentType === 'invoice') && processedData?.items && Array.isArray(processedData.items) && processedData.items.length > 0 ) {
           const headers = Object.keys(processedData.items[0]).join(',');
           const rows = processedData.items.map((item: any) => Object.values(item).map(val => `"${String(val).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -107,63 +111,55 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
 
 
   const renderContent = () => {
-    if (!documentType) { 
-        return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />;
+    if (!documentType && !rawText && !processedData) {
+        return <p className="text-muted-foreground">No data to display yet. Process an image to see results.</p>;
     }
+    
+    // Fallback for when documentType is null but there's rawText (e.g., initial generic text extraction)
+    if (!documentType && rawText) {
+        return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} />;
+    }
+
 
     switch (documentType) {
       case "handwritten_notes":
-        return <NotesViewer summaryData={processedData as SummarizeNotesOutput} rawTranscription={rawText} isEditing={isEditing} onRawTextChange={onRawTextChange}/>;
+        return <NotesViewer summaryData={processedData as SummarizeNotesOutput} rawTranscription={rawText} isEditing={isEditing} onRawTextChange={onRawTextChange} fontSize={fontSize}/>;
       case "retail_receipt":
         return (
-          <>
+          <div className="space-y-4">
             <ReceiptViewer receiptData={(processedData as ExtractReceiptDataOutput).receipt} />
-            {isEditing && (
-                 <div className="mt-4">
-                    <h3 className="text-lg font-semibold mb-2 text-foreground">Raw Text (Editable)</h3>
-                    <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />
-                 </div>
+            {isEditing && rawText && (
+                 <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} />
             )}
-          </>
+          </div>
         );
       case "invoice":
         return (
-          <>
+          <div className="space-y-4">
             <InvoiceViewer invoiceData={processedData as Invoice} />
-            {isEditing && (
-                <div className="mt-4">
-                    <h3 className="text-lg font-semibold mb-2 text-foreground">Raw Text (Editable)</h3>
-                    <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />
-                </div>
+            {isEditing && rawText && (
+                <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} />
             )}
-          </>
+          </div>
         );
       case "business_card":
         const cardData = processedData as GenerateContactCardOutput;
         return (
-          <>
+          <div className="space-y-4">
             <BusinessCardViewer contactData={cardData.contactInfo} vCardData={cardData.vCard} />
-             {isEditing && (
-                <div className="mt-4">
-                    <h3 className="text-lg font-semibold mb-2 text-foreground">Raw Text (Editable)</h3>
-                    <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />
-                </div>
+             {isEditing && rawText && (
+                <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} />
             )}
-          </>
+          </div>
         );
       case "printed_text":
       default:
-        return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} />;
+        // Use rawText directly for printed_text, as processedData.text might be the same
+        return <PrintedTextViewer text={rawText} isEditing={isEditing} onTextChange={onRawTextChange} fontSize={fontSize} />;
     }
   };
 
-  const showEditButton = onEditToggle && rawText && 
-    (documentType === 'handwritten_notes' || 
-     documentType === 'printed_text' ||
-     documentType === 'retail_receipt' || 
-     documentType === 'invoice' || 
-     documentType === 'business_card' 
-     );
+  const showEditButton = onEditToggle && rawText;
 
 
   return (
@@ -173,9 +169,8 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
           {showEditButton && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={onEditToggle}>
+                <Button variant="outline" size="icon" onClick={onEditToggle} aria-label={isEditing ? "Save Text" : "Edit Text"}>
                   {isEditing ? <Save className="h-4 w-4" /> : <Edit className="h-4 w-4" />}
-                  <span className="sr-only">{isEditing ? "Save Text" : "Edit Text"}</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -185,32 +180,31 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
           )}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="outline" size="icon" onClick={handleCopyToClipboard}>
+              <Button variant="outline" size="icon" onClick={handleCopyToClipboard} aria-label="Copy content to clipboard">
                 <Copy className="h-4 w-4" />
-                <span className="sr-only">Copy</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>
               <p>Copy</p>
             </TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="icon" onClick={handleShare}>
-                <Share2 className="h-4 w-4" />
-                <span className="sr-only">Share</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Share</p>
-            </TooltipContent>
-          </Tooltip>
+          {navigator.share && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="icon" onClick={handleShare} aria-label="Share content">
+                  <Share2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Share</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
           {(documentType === 'retail_receipt' || documentType === 'invoice') && processedData?.items?.length > 0 && (
              <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={() => handleDownload("csv")}>
+                <Button variant="outline" size="icon" onClick={() => handleDownload("csv")} aria-label="Download data as CSV">
                   <Download className="h-4 w-4" />
-                   <span className="sr-only">Download CSV</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -224,4 +218,3 @@ export function ResultsDisplay({ documentType, processedData, rawText, onEditTog
     </TooltipProvider>
   );
 }
-

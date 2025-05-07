@@ -5,7 +5,7 @@ import type { NextPage } from "next";
 import Head from "next/head";
 import React, { useState, useEffect, useCallback } from "react";
 import { DocuMindHeader } from "@/components/documind/header";
-import { SettingsDialog, type AiProvider } from "@/components/documind/settings-dialog";
+import { SettingsDialog, type AiProvider, type FontSizeOptionKey, fontSizeOptions } from "@/components/documind/settings-dialog";
 import { ImageUploader } from "@/components/documind/image-uploader";
 import { ResultsDisplay } from "@/components/documind/results-display";
 import { LoadingSpinner } from "@/components/documind/loading-spinner";
@@ -15,16 +15,15 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Terminal } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { imageFileToBase64 } from "@/lib/image-utils";
-import useLocalStorage from "@/hooks/use-local-storage"; // Added for API provider footnote
+import useLocalStorage from "@/hooks/use-local-storage";
 
 import { identifyDocumentType as identifyDocumentTypeFlow, type IdentifyDocumentTypeOutput } from "@/ai/flows/identify-document-type";
 import { summarizeNotes as summarizeNotesFlow, type SummarizeNotesOutput } from "@/ai/flows/summarize-notes";
 import { extractReceiptData as extractReceiptDataFlow, type ExtractReceiptDataOutput } from "@/ai/flows/extract-receipt-data";
 import { generateContactCard as generateContactCardFlow, type GenerateContactCardOutput } from "@/ai/flows/generate-contact-card";
-import { extractPrintedText as extractPrintedTextFlowOriginal, type ExtractPrintedTextOutput } from "@/ai/flows/extract-printed-text-flow";
+import { extractPrintedText as extractPrintedTextFlow, type ExtractPrintedTextOutput } from "@/ai/flows/extract-printed-text-flow";
 
-// Assuming invoice will primarily return raw text or use a generic structure from Genkit
-import { extractInvoiceInformation } from "@/services/invoice"; // Placeholder for AI flow
+import { extractInvoiceInformation } from "@/services/invoice";
 import type { DocumentType } from "@/services/document-analysis";
 import type { Invoice } from "@/services/invoice";
 
@@ -39,8 +38,14 @@ const Home: NextPage = () => {
   const [processedData, setProcessedData] = useState<any | null>(null);
   const [rawText, setRawText] = useState<string>("");
   const [isEditing, setIsEditing] = useState(false);
+  
   const [apiProvider] = useLocalStorage<AiProvider>("documind_api_provider", "Google AI");
+  const [fontSizeKey] = useLocalStorage<FontSizeOptionKey>("documind_font_size", "base");
+  const [currentFontSize, setCurrentFontSize] = useState<string>(fontSizeOptions.base.value);
 
+  useEffect(() => {
+    setCurrentFontSize(fontSizeOptions[fontSizeKey]?.value || fontSizeOptions.base.value);
+  }, [fontSizeKey]);
 
   const { toast } = useToast();
 
@@ -80,16 +85,26 @@ const Home: NextPage = () => {
       setDocumentType(idOutput.documentType);
       toast({ title: "Document Type Identified", description: `Type: ${idOutput.documentType.replace(/_/g, ' ')}` });
 
+      let extractedTextForProcessing = "";
+      if (idOutput.documentType !== "handwritten_notes") { // For notes, we transcribe first then summarize from that transcription
+         const textExtractionResult: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
+         extractedTextForProcessing = textExtractionResult.text;
+         setRawText(extractedTextForProcessing);
+      }
+
+
       switch (idOutput.documentType) {
         case "handwritten_notes":
-          toast({ title: "Processing Notes", description: "Summarizing handwritten notes..." });
-          const transcriptionForNotes: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
-          setRawText(transcriptionForNotes.text); 
-
+          toast({ title: "Processing Notes", description: "Transcribing and summarizing handwritten notes..." });
+          // First, transcribe the notes
+          const transcriptionForNotes: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
+          setRawText(transcriptionForNotes.text); // Set raw text from transcription
+          
           if (!transcriptionForNotes.text || transcriptionForNotes.text.trim() === "") {
              toast({ title: "Transcription Empty", description: "Could not transcribe text from notes. Summary cannot be generated.", variant: "default" });
-             setProcessedData({ summary: "No text transcribed to summarize." }); 
+             setProcessedData({ summary: "No text transcribed to summarize." });
           } else {
+            // Then, summarize using the transcription
             const notesOutput: SummarizeNotesOutput = await summarizeNotesFlow({ photoDataUri: imageDataUri, existingTranscription: transcriptionForNotes.text });
             setProcessedData(notesOutput);
           }
@@ -98,29 +113,25 @@ const Home: NextPage = () => {
           toast({ title: "Processing Receipt", description: "Extracting receipt data..." });
           const receiptOutput: ExtractReceiptDataOutput = await extractReceiptDataFlow({ photoDataUri: imageDataUri });
           setProcessedData(receiptOutput);
-          const rawTextForReceipt: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
-          setRawText(rawTextForReceipt.text);
+          // Raw text already set if applicable
           break;
         case "invoice":
           toast({ title: "Processing Invoice", description: "Extracting invoice data..." });
           const invoiceOutput: Invoice = await extractInvoiceInformation(imageDataUri); 
           setProcessedData(invoiceOutput);
-          const rawTextForInvoice: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
-          setRawText(rawTextForInvoice.text);
+          // Raw text already set if applicable
           break;
         case "business_card":
           toast({ title: "Processing Business Card", description: "Generating contact card..." });
           const cardOutput: GenerateContactCardOutput = await generateContactCardFlow({ photoDataUri: imageDataUri });
           setProcessedData(cardOutput);
-          const rawTextForBizCard: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
-          setRawText(rawTextForBizCard.text); 
+          // Raw text already set if applicable
           break;
         case "printed_text":
         default:
           toast({ title: "Processing Text", description: "Extracting printed text..." });
-          const textOutput: ExtractPrintedTextOutput = await extractPrintedTextFlowOriginal({ photoDataUri: imageDataUri });
-          setProcessedData({ text: textOutput.text }); 
-          setRawText(textOutput.text);
+          // Raw text is already set by the initial extraction
+          setProcessedData({ text: extractedTextForProcessing }); 
           break;
       }
       toast({ title: "Processing Complete", description: "Document processed successfully." });
@@ -136,16 +147,18 @@ const Home: NextPage = () => {
   
   const handleEditToggle = () => {
     if (isEditing) {
+      // When saving, update processedData if necessary
       if (documentType === 'printed_text' && processedData) {
         setProcessedData({ ...processedData, text: rawText });
       }
-       if (documentType === 'handwritten_notes' && processedData) {
-        // Potentially re-summarize if raw text changed significantly
-        // For now, just save the raw text change.
-        // If re-summarization is needed, a new call to summarizeNotesFlow would be required.
-        toast({ title: "Text Saved", description: "Raw transcription updated. Summary may need regeneration if changes are substantial." });
+      // For notes, the summary is based on the transcription.
+      // If rawText (transcription) changed, the summary might be stale.
+      // We could re-trigger summarization here, or just notify the user.
+      // For now, just save the raw text change.
+      if (documentType === 'handwritten_notes') {
+         toast({ title: "Text Saved", description: "Raw transcription updated. Re-process to update summary if needed." });
       } else {
-        toast({ title: "Text Saved", description: "Your changes have been locally saved." });
+        toast({ title: "Text Saved", description: "Your changes to the raw text have been saved locally." });
       }
     }
     setIsEditing(!isEditing);
@@ -173,7 +186,7 @@ const Home: NextPage = () => {
                   className="w-full text-lg py-6"
                 >
                   {isLoading ? (
-                    <LoadingSpinner message="Processing..." messageClassName="text-lg text-primary-foreground" />
+                    <LoadingSpinner message="Processing Image..." messageClassName="text-lg text-primary-foreground" />
                   ) : (
                     "Process Image"
                   )}
@@ -204,6 +217,7 @@ const Home: NextPage = () => {
                       onEditToggle={handleEditToggle}
                       isEditing={isEditing}
                       onRawTextChange={setRawText} 
+                      fontSize={currentFontSize}
                     />
                   </CardContent>
                 </Card>
