@@ -32,13 +32,14 @@ export async function summarizeNotes(input: SummarizeNotesInput): Promise<Summar
 const transcribeNotesPrompt = ai.definePrompt({
   name: 'transcribeNotesPrompt',
   input: {schema: SummarizeNotesInputSchema},
+  // No output.schema here, so response.text will contain the string output
   prompt: `Transcribe the following handwritten notes from the image.  Output only the text content of the image. Photo: {{media url=photoDataUri}}`,
 });
 
 const summarizeTextPrompt = ai.definePrompt({
   name: 'summarizeTextPrompt',
   input: {schema: z.object({text: z.string()})},
-  output: {schema: SummarizeNotesOutputSchema},
+  output: {schema: SummarizeNotesOutputSchema}, // This prompt has an output schema
   prompt: `Summarize the following text, and identify the key topics discussed:\n\n{{{text}}}`,
 });
 
@@ -50,7 +51,17 @@ const summarizeNotesFlow = ai.defineFlow(
   },
   async input => {
     const transcriptionResult = await transcribeNotesPrompt(input);
-    const summaryResult = await summarizeTextPrompt({text: transcriptionResult.output!});
-    return summaryResult.output!;
+    const transcribedText = transcriptionResult.text; // Access raw text via .text
+
+    if (!transcribedText || transcribedText.trim() === "") {
+      // If transcription is empty or only whitespace, return a specific message.
+      console.warn("Transcription resulted in empty text for summarization.");
+      return { summary: "Could not transcribe any text from the notes to summarize." };
+    }
+
+    const summaryResult = await summarizeTextPrompt({text: transcribedText});
+    // summaryResult.output is correct here because summarizeTextPrompt has an outputSchema
+    return summaryResult.output!; 
   }
 );
+
