@@ -1,26 +1,13 @@
 "use client";
 
-import type { Invoice } from "@/services/invoice"; // Assuming type comes from the service initially
+import type { ExtractInvoiceDataOutput } from "@/ai/flows/extract-invoice-data-flow"; 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 
 interface InvoiceViewerProps {
-  invoiceData: Invoice; // This will be populated by AI flow in a real app
+  invoiceData: ExtractInvoiceDataOutput['invoice']; 
 }
-
-// Placeholder function that would call the AI flow
-async function extractInvoiceInformationFromAI(imageDataUri: string): Promise<Invoice> {
-  // In a real app, this would call:
-  // import { extractInvoiceInformation as extractInvoiceAIFlow } from '@/ai/flows/extract-invoice-data'; // Assuming this flow exists
-  // const result = await extractInvoiceAIFlow({ photoDataUri: imageDataUri });
-  // return result.invoice;
-  
-  // For UI demo, using the placeholder from services/invoice.ts
-  const { extractInvoiceInformation } = await import("@/services/invoice");
-  return extractInvoiceInformation(imageDataUri);
-}
-
 
 export function InvoiceViewer({ invoiceData }: InvoiceViewerProps) {
   const {
@@ -41,50 +28,59 @@ export function InvoiceViewer({ invoiceData }: InvoiceViewerProps) {
       <CardHeader>
         <div className="flex justify-between items-start">
           <div>
-            <CardTitle className="text-lg">Invoice #{invoiceNumber}</CardTitle>
+            <CardTitle className="text-lg">Invoice {(invoiceNumber && invoiceNumber !== "N/A") ? `#${invoiceNumber}` : ''}</CardTitle>
             <CardDescription>
-              Issued: {issueDate} &nbsp;&nbsp;&nbsp; Due: {dueDate}
+              {(issueDate && issueDate !== "N/A") && `Issued: ${issueDate}`}
+              {(issueDate && issueDate !== "N/A" && dueDate && dueDate !== "N/A") && ` \u00A0\u00A0\u00A0 `}
+              {(dueDate && dueDate !== "N/A") && `Due: ${dueDate}`}
             </CardDescription>
           </div>
-          {/* Potential place for company logo if AI can extract it */}
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <h3 className="font-semibold mb-1">Biller:</h3>
-            <p className="whitespace-pre-wrap">{billerInformation}</p>
+        {(billerInformation && billerInformation !== "N/A") || (recipientInformation && recipientInformation !== "N/A") ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            {(billerInformation && billerInformation !== "N/A") && (
+              <div>
+                <h3 className="font-semibold mb-1">Biller:</h3>
+                <p className="whitespace-pre-wrap">{billerInformation}</p>
+              </div>
+            )}
+            {(recipientInformation && recipientInformation !== "N/A") && (
+              <div>
+                <h3 className="font-semibold mb-1">Recipient:</h3>
+                <p className="whitespace-pre-wrap">{recipientInformation}</p>
+              </div>
+            )}
           </div>
-          <div>
-            <h3 className="font-semibold mb-1">Recipient:</h3>
-            <p className="whitespace-pre-wrap">{recipientInformation}</p>
-          </div>
-        </div>
+        ) : null}
 
-        <Separator />
+        {(billerInformation && billerInformation !== "N/A" || recipientInformation && recipientInformation !== "N/A") && items && items.length > 0 && <Separator />}
 
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Description</TableHead>
-              <TableHead className="text-center">Qty</TableHead>
-              <TableHead className="text-right">Unit Price</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((item, index) => (
-              <TableRow key={index}>
-                <TableCell className="font-medium">{item.description}</TableCell>
-                <TableCell className="text-center">{item.quantity}</TableCell>
-                <TableCell className="text-right">${item.unitPrice.toFixed(2)}</TableCell>
-                <TableCell className="text-right">${item.totalPrice.toFixed(2)}</TableCell>
+        {items && items.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Description</TableHead>
+                <TableHead className="text-center">Qty</TableHead>
+                <TableHead className="text-right">Unit Price</TableHead>
+                <TableHead className="text-right">Total</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-
-        <Separator />
+            </TableHeader>
+            <TableBody>
+              {items.map((item, index) => (
+                <TableRow key={index}>
+                  <TableCell className="font-medium">{item.description || "N/A"}</TableCell>
+                  <TableCell className="text-center">{item.quantity}</TableCell>
+                  <TableCell className="text-right">${item.unitPrice.toFixed(2)}</TableCell>
+                  <TableCell className="text-right">${item.totalPrice.toFixed(2)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        
+        {items && items.length > 0 && <Separator />}
 
         <div className="space-y-1 text-sm ml-auto max-w-xs">
           <div className="flex justify-between">

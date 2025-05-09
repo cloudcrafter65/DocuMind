@@ -22,10 +22,9 @@ import { summarizeNotes as summarizeNotesFlow, type SummarizeNotesOutput } from 
 import { extractReceiptData as extractReceiptDataFlow, type ExtractReceiptDataOutput } from "@/ai/flows/extract-receipt-data";
 import { generateContactCard as generateContactCardFlow, type GenerateContactCardOutput } from "@/ai/flows/generate-contact-card";
 import { extractPrintedText as extractPrintedTextFlow, type ExtractPrintedTextOutput } from "@/ai/flows/extract-printed-text-flow";
+import { extractInvoiceData as extractInvoiceDataFlow, type ExtractInvoiceDataOutput } from "@/ai/flows/extract-invoice-data-flow"; // New import
 
-import { extractInvoiceInformation } from "@/services/invoice";
 import type { DocumentType } from "@/services/document-analysis";
-import type { Invoice } from "@/services/invoice";
 
 
 const Home: NextPage = () => {
@@ -83,6 +82,8 @@ const Home: NextPage = () => {
       toast({ title: "Document Type Identified", description: `Type: ${idOutput.documentType.replace(/_/g, ' ')}` });
 
       let extractedTextForProcessing = "";
+      // For all document types except business cards (which have their own direct extraction), first get raw text.
+      // This raw text can be displayed alongside structured data for types like receipts/invoices.
       if (idOutput.documentType !== 'business_card') { 
          const textExtractionResult: ExtractPrintedTextOutput = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
          extractedTextForProcessing = textExtractionResult.text;
@@ -108,19 +109,24 @@ const Home: NextPage = () => {
           break;
         case "invoice":
           toast({ title: "Processing Invoice", description: "Extracting invoice data..." });
-          const invoiceOutput: Invoice = await extractInvoiceInformation(imageDataUri); 
-          setProcessedData(invoiceOutput);
+          const invoiceOutput: ExtractInvoiceDataOutput = await extractInvoiceDataFlow({ photoDataUri: imageDataUri }); 
+          setProcessedData(invoiceOutput); // Store the whole output object
           break;
         case "business_card":
           toast({ title: "Processing Business Card", description: "Generating contact card..." });
           const cardOutput: GenerateContactCardOutput = await generateContactCardFlow({ photoDataUri: imageDataUri });
+          // Business cards might not have 'rawText' in the same way, their info is structured.
+          // If a raw text view is desired for business cards, the flow would need to provide it, 
+          // or a separate text extraction call would be needed here.
+          // For now, assuming rawText for business cards might be empty or populated by its specific flow.
+          const bizCardRawTextAttempt = await extractPrintedTextFlow({ photoDataUri: imageDataUri });
+          setRawText(bizCardRawTextAttempt.text);
           setProcessedData(cardOutput);
           break;
         case "printed_text":
         default:
           toast({ title: "Processing Text", description: "Extracting printed text..." });
           // Use the already set rawText for printed_text type, as it is the primary content.
-          // If extractedTextForProcessing is empty, rawText will also be empty.
           setProcessedData({ text: extractedTextForProcessing }); 
           break;
       }
@@ -140,7 +146,6 @@ const Home: NextPage = () => {
       if (documentType === 'printed_text' && processedData) {
         setProcessedData({ ...processedData, text: rawText });
       } else if (documentType === 'handwritten_notes') {
-         // rawText is updated via onRawTextChange. The summary is not re-generated on save.
          toast({ title: "Text Saved", description: "Raw transcription updated. Re-process image to update summary if needed." });
       } else if (documentType === 'retail_receipt' || documentType === 'invoice' || documentType === 'business_card') {
          toast({ title: "Raw Text Saved", description: "Changes to the raw text have been saved locally." });
@@ -205,7 +210,7 @@ const Home: NextPage = () => {
                     />
               )}
               
-              {!isLoading && !error && !documentType && !rawText && !processedData && selectedImageFile && (
+              {!isLoading && !error && !documentType && !rawText && !processedData && selectedImageFile && !processedData && (
                 <Card className="shadow-lg">
                   <CardHeader className="px-2 sm:px-4 py-3">
                     <CardTitle className="text-lg text-foreground">Ready to Process</CardTitle>
