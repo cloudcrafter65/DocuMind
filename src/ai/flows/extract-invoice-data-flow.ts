@@ -32,7 +32,7 @@ const InvoiceSchema = z.object({
 });
 export type Invoice = z.infer<typeof InvoiceSchema>;
 
-export const ExtractInvoiceDataInputSchema = z.object({
+const ExtractInvoiceDataInputSchema = z.object({
   photoDataUri: z
     .string()
     .describe(
@@ -41,7 +41,7 @@ export const ExtractInvoiceDataInputSchema = z.object({
 });
 export type ExtractInvoiceDataInput = z.infer<typeof ExtractInvoiceDataInputSchema>;
 
-export const ExtractInvoiceDataOutputSchema = z.object({
+const ExtractInvoiceDataOutputSchema = z.object({
   invoice: InvoiceSchema.describe('The extracted invoice information.'),
 });
 export type ExtractInvoiceDataOutput = z.infer<typeof ExtractInvoiceDataOutputSchema>;
