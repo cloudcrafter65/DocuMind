@@ -10,7 +10,6 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import {extractBusinessCardInformation, BusinessCard} from '@/services/business-card';
 
 const GenerateContactCardInputSchema = z.object({
   photoDataUri: z
@@ -21,23 +20,46 @@ const GenerateContactCardInputSchema = z.object({
 });
 export type GenerateContactCardInput = z.infer<typeof GenerateContactCardInputSchema>;
 
+const ContactInfoSchema = z.object({
+    fullName: z.string().describe('The full name extracted from the business card. If not found, use "N/A".'),
+    jobTitle: z.string().describe('The job title extracted from the business card. If not found, use "N/A".'),
+    companyName: z.string().describe('The company name extracted from the business card. If not found, use "N/A".'),
+    phoneNumbers: z.array(z.string()).describe('An array of phone numbers extracted from the business card. If none found, return an empty array.'),
+    emailAddresses: z.array(z.string()).describe('An array of email addresses extracted from the business card. If none found, return an empty array.'),
+    website: z.string().describe('The website URL extracted from the business card. If not found, use "N/A".'),
+    address: z.string().describe('The physical address extracted from the business card. If not found, use "N/A".'),
+});
+
 const GenerateContactCardOutputSchema = z.object({
-  contactInfo: z.object({
-        fullName: z.string().describe('The full name extracted from the business card.'),
-        jobTitle: z.string().describe('The job title extracted from the business card.'),
-        companyName: z.string().describe('The company name extracted from the business card.'),
-        phoneNumbers: z.array(z.string()).describe('An array of phone numbers extracted from the business card.'),
-        emailAddresses: z.array(z.string()).describe('An array of email addresses extracted from the business card.'),
-        website: z.string().describe('The website URL extracted from the business card.'),
-        address: z.string().describe('The physical address extracted from the business card.'),
-    }).describe('Extracted contact information from the business card.'),
+  contactInfo: ContactInfoSchema.describe('Extracted contact information from the business card.'),
   vCard: z.string().describe('The vCard data generated from the contact information.'),
 });
 export type GenerateContactCardOutput = z.infer<typeof GenerateContactCardOutputSchema>;
 
+
 export async function generateContactCard(input: GenerateContactCardInput): Promise<GenerateContactCardOutput> {
   return generateContactCardFlow(input);
 }
+
+const extractBusinessCardInfoPrompt = ai.definePrompt({
+  name: 'extractBusinessCardInfoPrompt',
+  input: { schema: GenerateContactCardInputSchema },
+  output: { schema: ContactInfoSchema },
+  prompt: `You are an expert data extraction tool specializing in business cards. Analyze the provided business card image and extract the following information accurately.
+  If a field is not present or clearly discernible, use "N/A" for string fields and an empty array for array fields (like phoneNumbers, emailAddresses).
+
+  Extract the following details:
+  - Full Name
+  - Job Title
+  - Company Name
+  - Phone Numbers (list all found)
+  - Email Addresses (list all found)
+  - Website
+  - Physical Address
+
+  Business Card Image: {{media url=photoDataUri}}`,
+});
+
 
 const generateContactCardFlow = ai.defineFlow(
   {
@@ -46,10 +68,45 @@ const generateContactCardFlow = ai.defineFlow(
     outputSchema: GenerateContactCardOutputSchema,
   },
   async input => {
-    const businessCardInfo: BusinessCard = await extractBusinessCardInformation(input.photoDataUri);
+    const { output: extractedInfo } = await extractBusinessCardInfoPrompt({ photoDataUri: input.photoDataUri });
+
+    if (!extractedInfo) {
+        throw new Error("Failed to extract business card information from the AI model.");
+    }
+    
+    const businessCardInfo = extractedInfo;
 
     // Generate vCard data
-    const vCardData = `BEGIN:VCARD\nVERSION:3.0\nN:${businessCardInfo.fullName};;\nFN:${businessCardInfo.fullName}\nORG:${businessCardInfo.companyName}\nTITLE:${businessCardInfo.jobTitle}\nTEL;TYPE=work,VOICE:${businessCardInfo.phoneNumbers.join('\nTEL;TYPE=work,VOICE:')}\nEMAIL:${businessCardInfo.emailAddresses.join('\nEMAIL:')}\nADR;TYPE=WORK:${businessCardInfo.address}\nURL:${businessCardInfo.website}\nEND:VCARD`;
+    // Ensure graceful handling of potentially N/A or empty fields
+    const N = businessCardInfo.fullName !== "N/A" ? businessCardInfo.fullName.split(' ').pop() + ';' + businessCardInfo.fullName.split(' ').slice(0,-1).join(' ') : '';
+    const FN = businessCardInfo.fullName !== "N/A" ? businessCardInfo.fullName : '';
+    const ORG = businessCardInfo.companyName !== "N/A" ? businessCardInfo.companyName : '';
+    const TITLE = businessCardInfo.jobTitle !== "N/A" ? businessCardInfo.jobTitle : '';
+    
+    let telLines = '';
+    if (businessCardInfo.phoneNumbers && businessCardInfo.phoneNumbers.length > 0) {
+      telLines = businessCardInfo.phoneNumbers.map(num => `TEL;TYPE=WORK,VOICE:${num}`).join('\n');
+    }
+
+    let emailLines = '';
+    if (businessCardInfo.emailAddresses && businessCardInfo.emailAddresses.length > 0) {
+      emailLines = businessCardInfo.emailAddresses.map(email => `EMAIL:${email}`).join('\n');
+    }
+    
+    const ADR = businessCardInfo.address !== "N/A" ? `ADR;TYPE=WORK:${businessCardInfo.address}` : '';
+    const URL = businessCardInfo.website !== "N/A" ? `URL:${businessCardInfo.website}` : '';
+
+    let vCardData = `BEGIN:VCARD\nVERSION:3.0`;
+    if (N) vCardData += `\nN:${N}`;
+    if (FN) vCardData += `\nFN:${FN}`;
+    if (ORG) vCardData += `\nORG:${ORG}`;
+    if (TITLE) vCardData += `\nTITLE:${TITLE}`;
+    if (telLines) vCardData += `\n${telLines}`;
+    if (emailLines) vCardData += `\n${emailLines}`;
+    if (ADR) vCardData += `\n${ADR}`;
+    if (URL) vCardData += `\n${URL}`;
+    vCardData += `\nEND:VCARD`;
+
 
     return {
       contactInfo: businessCardInfo,
